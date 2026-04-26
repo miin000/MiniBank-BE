@@ -1,0 +1,15 @@
+package com.minibank.backend.admin.repository;
+
+import java.util.List;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import com.minibank.backend.admin.entity.AdminUserRole;
+
+public interface AdminUserRoleRepository extends JpaRepository<AdminUserRole, Long> {
+
+	@Query("select r.code from AdminUserRole aur join aur.role r where aur.adminUser.id = :adminUserId")
+	List<String> findRoleCodesByAdminUserId(@Param("adminUserId") Long adminUserId);
+}
