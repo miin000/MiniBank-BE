@@ -3,9 +3,9 @@ package com.minibank.backend.config;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -28,27 +28,20 @@ public class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPostProce
 	public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
 		loadDotEnvFile(environment);
 
-		String existingDatasourceUrl = environment.getProperty("spring.datasource.url");
-		String databaseUrl;
-		if (hasText(existingDatasourceUrl)) {
-			// If someone sets DB_URL/SPRING_DATASOURCE_URL to a libpq-style URL
-			// (postgresql://...), convert it to JDBC instead of letting Hikari fail.
-			if (isPostgresUrl(existingDatasourceUrl)) {
-				databaseUrl = existingDatasourceUrl;
-			} else {
-				return;
-			}
-		} else {
-			databaseUrl = firstNonBlank(
-				environment.getProperty("DATABASE_URL"),
-				environment.getProperty("NEON_DATABASE_URL")
-			);
-		}
-		if (!hasText(databaseUrl)) {
+		// EnvironmentPostProcessor runs before application.properties is loaded, so we must look at the
+		// raw env/dotenv keys too (SPRING_DATASOURCE_URL, DB_URL, DATABASE_URL, ...).
+		String candidateUrl = firstNonBlank(
+			environment.getProperty("spring.datasource.url"),
+			environment.getProperty("SPRING_DATASOURCE_URL"),
+			environment.getProperty("DB_URL"),
+			environment.getProperty("DATABASE_URL"),
+			environment.getProperty("NEON_DATABASE_URL")
+		);
+		if (!hasText(candidateUrl) || !isPostgresUrl(candidateUrl)) {
 			return;
 		}
 
-		JdbcConnectionInfo jdbc = tryParseDatabaseUrl(databaseUrl);
+		JdbcConnectionInfo jdbc = tryParseDatabaseUrl(candidateUrl);
 		if (jdbc == null || !hasText(jdbc.url())) {
 			return;
 		}

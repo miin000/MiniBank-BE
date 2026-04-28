@@ -5,8 +5,6 @@ import java.time.Instant;
 
 import org.hibernate.annotations.CreationTimestamp;
 
-import org.hibernate.annotations.CreationTimestamp;
-
 import com.minibank.backend.user.entity.User;
 
 import jakarta.persistence.Column;

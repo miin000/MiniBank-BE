@@ -145,6 +145,8 @@ public class AuthService {
 			.fullName(request.fullName() == null ? null : request.fullName().trim())
 			.status("pending")
 			.customerRank("dong")
+			.deviceId(request.deviceId() == null ? null : request.deviceId().trim())
+			.publicKey(request.publicKey())
 			.build();
 
 		User saved = users().save(user);
@@ -159,9 +161,13 @@ public class AuthService {
 		);
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional
 	public AuthResponse loginUser(LoginRequest request) {
 		String phone = request.identifier().trim();
+		String deviceId = request.deviceId() == null ? null : request.deviceId().trim();
+		if (deviceId == null || deviceId.isBlank()) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "deviceId is required");
+		}
 		User user = users().findByPhone(phone)
 			.orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
 
@@ -171,6 +177,17 @@ public class AuthService {
 		if (user.getStatus() != null && user.getStatus().equalsIgnoreCase("blocked")) {
 			throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account is blocked");
 		}
+
+		// Device exclusivity: allow only one device per account at a time.
+		if (user.getDeviceId() == null || user.getDeviceId().isBlank()) {
+			user.setDeviceId(deviceId);
+		} else if (!user.getDeviceId().equals(deviceId)) {
+			throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account is already active on another device");
+		}
+		if (request.publicKey() != null && !request.publicKey().isBlank()) {
+			user.setPublicKey(request.publicKey());
+		}
+		users().save(user);
 
 		List<String> roles = List.of("USER");
 		JwtTokenService.IssuedToken token = jwtTokenService.issueAccessToken(user.getId(), "USER", user.getPhone(), roles);
