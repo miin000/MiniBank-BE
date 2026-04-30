@@ -34,4 +34,5 @@ public class MobileAuthController {
 	public AuthResponse login(@Valid @RequestBody LoginRequest request) {
 		return authService.loginUser(request);
 	}
+
 }

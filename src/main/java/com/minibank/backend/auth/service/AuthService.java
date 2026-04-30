@@ -198,4 +198,5 @@ public class AuthService {
 			new AuthResponse.UserInfo(user.getId(), "USER", null, user.getPhone(), roles)
 		);
 	}
+
 }
