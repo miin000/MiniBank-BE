@@ -1,5 +1,6 @@
 package com.minibank.backend.admin.dto;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 
@@ -12,6 +13,11 @@ public record KycRequestSummary(
 	LocalDate dob,
 	String citizenId,
 	String address,
+	String occupation,
+	BigDecimal monthlyIncome,
+	String citizenFrontImageUrl,
+	String citizenBackImageUrl,
+	String portraitImageUrl,
 	String status,
 	Instant submittedAt
 ) {}

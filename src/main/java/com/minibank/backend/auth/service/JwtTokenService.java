@@ -28,23 +28,32 @@ public class JwtTokenService {
 		this.accessTokenTtlSeconds = accessTokenTtlSeconds;
 	}
 
-	public IssuedToken issueAccessToken(Long userId, String type, String subject, List<String> roles) {
+	public IssuedToken issueAccessToken(Long userId, String type, String subject, List<String> roles, String deviceId) {
 		Instant now = Instant.now();
 		Instant expiresAt = now.plusSeconds(accessTokenTtlSeconds);
 
 		JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();
-		JwtClaimsSet claims = JwtClaimsSet.builder()
+		JwtClaimsSet.Builder builder = JwtClaimsSet.builder()
 			.issuer(issuer)
 			.issuedAt(now)
 			.expiresAt(expiresAt)
 			.subject(subject)
 			.claim("uid", userId)
 			.claim("type", type)
-			.claim("roles", roles)
-			.build();
+			.claim("roles", roles);
+
+		if (deviceId != null && !deviceId.isBlank()) {
+			builder.claim("deviceId", deviceId);
+		}
+
+		JwtClaimsSet claims = builder.build();
 
 		String tokenValue = jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
 		return new IssuedToken(tokenValue, accessTokenTtlSeconds);
+	}
+
+	public IssuedToken issueAccessToken(Long userId, String type, String subject, List<String> roles) {
+		return issueAccessToken(userId, type, subject, roles, null);
 	}
 
 	public record IssuedToken(String token, long expiresInSeconds) {}

@@ -1,5 +1,6 @@
 package com.minibank.backend.user.entity;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 
@@ -49,6 +50,21 @@ public class KycRequest {
 
 	@Column(name = "address", nullable = false, columnDefinition = "text")
 	private String address;
+
+	@Column(name = "occupation", length = 255)
+	private String occupation;
+
+	@Column(name = "monthly_income", precision = 18, scale = 2)
+	private BigDecimal monthlyIncome;
+
+	@Column(name = "citizen_front_image_url", columnDefinition = "text")
+	private String citizenFrontImageUrl;
+
+	@Column(name = "citizen_back_image_url", columnDefinition = "text")
+	private String citizenBackImageUrl;
+
+	@Column(name = "portrait_image_url", columnDefinition = "text")
+	private String portraitImageUrl;
 
 	@Column(nullable = false, length = 32)
 	private String status;

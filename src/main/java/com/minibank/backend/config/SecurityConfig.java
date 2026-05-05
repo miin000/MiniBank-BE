@@ -17,12 +17,15 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import com.minibank.backend.common.security.DeviceLockFilter;
+import com.minibank.backend.system.logging.AdminAuditLogFilter;
+
 @Configuration
 @EnableMethodSecurity
 public class SecurityConfig {
 
 	@Bean
-	public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+	public SecurityFilterChain securityFilterChain(HttpSecurity http, DeviceLockFilter deviceLockFilter, AdminAuditLogFilter adminAuditLogFilter) throws Exception {
 		http
 			.csrf(csrf -> csrf.disable())
 			.cors(Customizer.withDefaults())
@@ -36,6 +39,9 @@ public class SecurityConfig {
 			.oauth2ResourceServer(oauth2 -> oauth2
 				.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
 			);
+
+		http.addFilterAfter(deviceLockFilter, org.springframework.security.web.authentication.AnonymousAuthenticationFilter.class);
+		http.addFilterAfter(adminAuditLogFilter, DeviceLockFilter.class);
 
 		return http.build();
 	}

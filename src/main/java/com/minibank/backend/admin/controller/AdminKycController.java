@@ -42,11 +42,21 @@ public class AdminKycController {
 			.toList();
 	}
 
+	@GetMapping
+	@Transactional(readOnly = true)
+	public List<KycRequestSummary> list(@org.springframework.web.bind.annotation.RequestParam(value = "status", required = false) String status) {
+		String normalized = normalize(status);
+		List<KycRequest> items = normalized == null
+			? kycRequestRepository.findAllByOrderBySubmittedAtDesc()
+			: kycRequestRepository.findByStatusOrderBySubmittedAtDesc(normalized);
+		return items.stream().map(this::toSummary).toList();
+	}
+
 	@PostMapping("/{kycRequestId}/approve")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public void approve(@PathVariable Long kycRequestId, @Valid @RequestBody KycDecisionRequest request) {
 		long adminUserId = CurrentJwt.requireUserId();
-		adminKycService.approve(kycRequestId, adminUserId, request.accountNumber(), request.note());
+		adminKycService.approve(kycRequestId, adminUserId, request.note());
 	}
 
 	@PostMapping("/{kycRequestId}/reject")
@@ -66,8 +76,19 @@ public class AdminKycController {
 			k.getDob(),
 			k.getCitizenId(),
 			k.getAddress(),
+			k.getOccupation(),
+			k.getMonthlyIncome(),
+			k.getCitizenFrontImageUrl(),
+			k.getCitizenBackImageUrl(),
+			k.getPortraitImageUrl(),
 			k.getStatus(),
 			k.getSubmittedAt()
 		);
+	}
+
+	private static String normalize(String value) {
+		if (value == null) return null;
+		String trimmed = value.trim();
+		return trimmed.isEmpty() ? null : trimmed.toLowerCase();
 	}
 }

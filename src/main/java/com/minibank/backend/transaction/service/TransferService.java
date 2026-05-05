@@ -93,6 +93,13 @@ public class TransferService {
 		String canonical = canonicalPayload(fromAccount.getAccountNumber(), toAccount.getAccountNumber(), amount, request.description(), request.idempotencyKey());
 		rsaSignatureService.verifyOrThrow(user.getPublicKey(), canonical, request.signature());
 
+		if (user.getTransactionPinHash() == null || user.getTransactionPinHash().isBlank()) {
+			throw new ResponseStatusException(HttpStatus.PRECONDITION_REQUIRED, "Transaction PIN is not set");
+		}
+		if (!passwordEncoder.matches(request.pin(), user.getTransactionPinHash())) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid PIN");
+		}
+
 		Transaction tx = null;
 		if (request.idempotencyKey() != null && !request.idempotencyKey().isBlank()) {
 			Optional<Transaction> existing = transactionRepository.findByIdempotencyKey(request.idempotencyKey().trim());
@@ -124,11 +131,11 @@ public class TransferService {
 
 			TransactionAuthentication auth = TransactionAuthentication.builder()
 				.transaction(tx)
-				.pinVerified(false)
+				.pinVerified(true)
 				.otpVerified(false)
 				.otpCodeHash(otpHash)
 				.digitalSignature(request.signature())
-				.authStatus("pending")
+				.authStatus("pin_verified")
 				.build();
 			transactionAuthenticationRepository.save(auth);
 		} else {
@@ -151,9 +158,9 @@ public class TransferService {
 				.orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Missing transaction authentication"));
 			auth.setOtpCodeHash(otpHash);
 			auth.setOtpVerified(false);
-			auth.setPinVerified(false);
+			auth.setPinVerified(true);
 			auth.setDigitalSignature(request.signature());
-			auth.setAuthStatus("pending");
+			auth.setAuthStatus("pin_verified");
 			transactionAuthenticationRepository.save(auth);
 		}
 
@@ -178,9 +185,6 @@ public class TransferService {
 		if (!"active".equalsIgnoreCase(user.getStatus())) {
 			throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account is not active");
 		}
-		if (user.getTransactionPinHash() == null || user.getTransactionPinHash().isBlank()) {
-			throw new ResponseStatusException(HttpStatus.PRECONDITION_REQUIRED, "Transaction PIN is not set");
-		}
 
 		Transaction tx = transactionRepository.findByIdAndInitiatedByUserId(request.transactionId(), user.getId())
 			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Transaction not found"));
@@ -198,12 +202,7 @@ public class TransferService {
 		if (auth.getOtpCodeHash() == null || !passwordEncoder.matches(request.otpCode(), auth.getOtpCodeHash())) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid OTP");
 		}
-		if (!passwordEncoder.matches(request.pin(), user.getTransactionPinHash())) {
-			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid PIN");
-		}
-
 		auth.setOtpVerified(true);
-		auth.setPinVerified(true);
 		auth.setAuthStatus("verified");
 		auth.setVerifiedAt(Instant.now());
 		transactionAuthenticationRepository.save(auth);

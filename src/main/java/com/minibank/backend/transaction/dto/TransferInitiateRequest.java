@@ -12,5 +12,6 @@ public record TransferInitiateRequest(
 	@NotNull BigDecimal amount,
 	@Size(max = 500) String description,
 	@Size(max = 128) String idempotencyKey,
-	@NotBlank String signature
+	@NotBlank String signature,
+	@NotBlank @Size(min = 6, max = 6) String pin
 ) {}
