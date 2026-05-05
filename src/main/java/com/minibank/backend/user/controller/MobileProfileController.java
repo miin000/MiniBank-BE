@@ -144,4 +144,16 @@ public class MobileProfileController {
 		user.setPublicKey(pem);
 		userRepository.save(user);
 	}
+
+	@PostMapping("/reset-device")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	@Transactional
+	public void resetDevice() {
+		long userId = CurrentJwt.requireUserId();
+		User user = userRepository.findById(userId)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+
+		user.setDeviceId(null);
+		userRepository.save(user);
+	}
 }

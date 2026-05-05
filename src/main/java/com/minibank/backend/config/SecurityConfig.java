@@ -32,7 +32,7 @@ public class SecurityConfig {
 			.sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.authorizeHttpRequests(auth -> auth
 				.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-				.requestMatchers(HttpMethod.POST, "/api/admin/auth/**").permitAll()
+				.requestMatchers(HttpMethod.POST, "/api/admin/auth/login").permitAll()
 				.requestMatchers(HttpMethod.POST, "/api/mobile/auth/**").permitAll()
 				.anyRequest().authenticated()
 			)
