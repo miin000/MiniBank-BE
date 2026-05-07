@@ -3,6 +3,8 @@ package com.minibank.backend.system.entity;
 import java.time.Instant;
 
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -44,6 +46,7 @@ public class SystemLog {
 	private Long targetId;
 
 	@Column(name = "metadata_json", columnDefinition = "jsonb")
+	@JdbcTypeCode(SqlTypes.JSON)
 	private String metadataJson;
 
 	@Column(name = "ip_address", length = 64)

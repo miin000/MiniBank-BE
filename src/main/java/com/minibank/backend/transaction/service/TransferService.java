@@ -2,8 +2,11 @@ package com.minibank.backend.transaction.service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -17,6 +20,7 @@ import com.minibank.backend.account.entity.Account;
 import com.minibank.backend.account.entity.AccountBalanceLedger;
 import com.minibank.backend.account.repository.AccountBalanceLedgerRepository;
 import com.minibank.backend.account.repository.AccountRepository;
+import com.minibank.backend.common.otp.SmsOtpService;
 import com.minibank.backend.transaction.dto.TransferConfirmRequest;
 import com.minibank.backend.transaction.dto.TransferConfirmResponse;
 import com.minibank.backend.transaction.dto.TransferInitiateRequest;
@@ -39,6 +43,7 @@ public class TransferService {
 	private final AccountBalanceLedgerRepository ledgerRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final RsaSignatureService rsaSignatureService;
+	private final SmsOtpService smsOtpService;
 	private final boolean debugReturnOtp;
 
 	public TransferService(
@@ -49,6 +54,7 @@ public class TransferService {
 		AccountBalanceLedgerRepository ledgerRepository,
 		PasswordEncoder passwordEncoder,
 		RsaSignatureService rsaSignatureService,
+		SmsOtpService smsOtpService,
 		@Value("${app.otp.debug-return:false}") boolean debugReturnOtp
 	) {
 		this.userRepository = userRepository;
@@ -58,6 +64,7 @@ public class TransferService {
 		this.ledgerRepository = ledgerRepository;
 		this.passwordEncoder = passwordEncoder;
 		this.rsaSignatureService = rsaSignatureService;
+		this.smsOtpService = smsOtpService;
 		this.debugReturnOtp = debugReturnOtp;
 	}
 
@@ -76,6 +83,7 @@ public class TransferService {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Recipient account is not active");
 		}
 
+
 		BigDecimal amount = normalizeAmount(request.amount());
 		if (amount.compareTo(BigDecimal.ZERO) <= 0) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "amount must be > 0");
@@ -92,7 +100,7 @@ public class TransferService {
 
 		String canonical = canonicalPayload(fromAccount.getAccountNumber(), toAccount.getAccountNumber(), amount, request.description(), request.idempotencyKey());
 		rsaSignatureService.verifyOrThrow(user.getPublicKey(), canonical, request.signature());
-
+		
 		if (user.getTransactionPinHash() == null || user.getTransactionPinHash().isBlank()) {
 			throw new ResponseStatusException(HttpStatus.PRECONDITION_REQUIRED, "Transaction PIN is not set");
 		}
@@ -111,8 +119,9 @@ public class TransferService {
 			}
 		}
 
-		String otp = generateOtp();
-		String otpHash = passwordEncoder.encode(otp);
+		SmsOtpService.OtpSendResult otpResult = smsOtpService.sendOtp(user.getPhone());
+		String otp = otpResult.otp();
+		String otpHash = otp == null ? null : sha256Hex(otp);
 
 		if (tx == null) {
 			tx = Transaction.builder()
@@ -178,6 +187,16 @@ public class TransferService {
 		);
 	}
 
+	private static String sha256Hex(String input) {
+		try {
+			MessageDigest md = MessageDigest.getInstance("SHA-256");
+			byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
+			return HexFormat.of().formatHex(hash);
+		} catch (Exception e) {
+			throw new RuntimeException(e);
+		}
+	}
+
 	@Transactional
 	public TransferConfirmResponse confirm(long userId, TransferConfirmRequest request) {
 		User user = userRepository.findById(userId)
@@ -199,20 +218,20 @@ public class TransferService {
 		TransactionAuthentication auth = transactionAuthenticationRepository.findByTransactionId(tx.getId())
 			.orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Missing transaction authentication"));
 
-		if (auth.getOtpCodeHash() == null || !passwordEncoder.matches(request.otpCode(), auth.getOtpCodeHash())) {
+		if (auth.getOtpCodeHash() == null || !sha256Hex(request.otpCode()).equals(auth.getOtpCodeHash())) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid OTP");
 		}
 		auth.setOtpVerified(true);
 		auth.setAuthStatus("verified");
 		auth.setVerifiedAt(Instant.now());
 		transactionAuthenticationRepository.save(auth);
-
+	
 		// ACID transfer: lock both accounts before updating balances.
 		Account fromAccount = accountRepository.findByIdForUpdate(tx.getFromAccount().getId())
-			.orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Sender account missing"));
+		.orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Sender account missing"));
 		Account toAccount = accountRepository.findByIdForUpdate(tx.getToAccount().getId())
-			.orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Recipient account missing"));
-
+		.orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Recipient account missing"));
+		
 		BigDecimal amount = tx.getAmount();
 		if (fromAccount.getAvailableBalance().compareTo(amount) < 0) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Insufficient balance");
@@ -220,7 +239,7 @@ public class TransferService {
 
 		BigDecimal fromBefore = fromAccount.getAvailableBalance();
 		BigDecimal toBefore = toAccount.getAvailableBalance();
-
+		
 		fromAccount.setAvailableBalance(fromBefore.subtract(amount));
 		fromAccount.setCurrentBalance(fromAccount.getCurrentBalance().subtract(amount));
 		toAccount.setAvailableBalance(toBefore.add(amount));
@@ -228,7 +247,7 @@ public class TransferService {
 
 		accountRepository.save(fromAccount);
 		accountRepository.save(toAccount);
-
+		
 		ledgerRepository.save(AccountBalanceLedger.builder()
 			.account(fromAccount)
 			.transaction(tx)
@@ -237,8 +256,8 @@ public class TransferService {
 			.balanceBefore(fromBefore)
 			.balanceAfter(fromAccount.getAvailableBalance())
 			.build());
-
-		ledgerRepository.save(AccountBalanceLedger.builder()
+			
+			ledgerRepository.save(AccountBalanceLedger.builder()
 			.account(toAccount)
 			.transaction(tx)
 			.entryType("credit")
@@ -247,10 +266,10 @@ public class TransferService {
 			.balanceAfter(toAccount.getAvailableBalance())
 			.build());
 
-		tx.setStatus("completed");
-		tx.setCompletedAt(Instant.now());
+			tx.setStatus("completed");
+			tx.setCompletedAt(Instant.now());
 		transactionRepository.save(tx);
-
+	
 		return new TransferConfirmResponse(
 			tx.getId(),
 			tx.getStatus(),
@@ -282,11 +301,6 @@ public class TransferService {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "amount is required");
 		}
 		return amount.setScale(2, RoundingMode.HALF_UP);
-	}
-
-	private static String generateOtp() {
-		int v = RNG.nextInt(1_000_000);
-		return String.format("%06d", v);
 	}
 
 	private static String generateTransactionCode() {
