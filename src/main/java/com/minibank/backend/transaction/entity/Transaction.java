@@ -3,10 +3,11 @@ package com.minibank.backend.transaction.entity;
 import java.math.BigDecimal;
 import java.time.Instant;
 
-import com.minibank.backend.account.entity.Account;
-import com.minibank.backend.user.entity.User;
-
 import org.hibernate.annotations.CreationTimestamp;
+
+import com.minibank.backend.account.entity.Account;
+import com.minibank.backend.account.entity.TransferQrIntent;
+import com.minibank.backend.user.entity.User;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -67,6 +68,10 @@ public class Transaction {
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "initiated_by_user_id")
 	private User initiatedByUser;
+
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "qr_transfer_intent_id")
+	private TransferQrIntent qrTransferIntent;
 
 	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)

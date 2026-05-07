@@ -18,8 +18,10 @@ import org.springframework.web.server.ResponseStatusException;
 
 import com.minibank.backend.account.entity.Account;
 import com.minibank.backend.account.entity.AccountBalanceLedger;
+import com.minibank.backend.account.entity.TransferQrIntent;
 import com.minibank.backend.account.repository.AccountBalanceLedgerRepository;
 import com.minibank.backend.account.repository.AccountRepository;
+import com.minibank.backend.account.repository.TransferQrIntentRepository;
 import com.minibank.backend.common.otp.SmsOtpService;
 import com.minibank.backend.transaction.dto.TransferConfirmRequest;
 import com.minibank.backend.transaction.dto.TransferConfirmResponse;
@@ -41,6 +43,7 @@ public class TransferService {
 	private final TransactionRepository transactionRepository;
 	private final TransactionAuthenticationRepository transactionAuthenticationRepository;
 	private final AccountBalanceLedgerRepository ledgerRepository;
+	private final TransferQrIntentRepository transferQrIntentRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final RsaSignatureService rsaSignatureService;
 	private final SmsOtpService smsOtpService;
@@ -52,6 +55,7 @@ public class TransferService {
 		TransactionRepository transactionRepository,
 		TransactionAuthenticationRepository transactionAuthenticationRepository,
 		AccountBalanceLedgerRepository ledgerRepository,
+		TransferQrIntentRepository transferQrIntentRepository,
 		PasswordEncoder passwordEncoder,
 		RsaSignatureService rsaSignatureService,
 		SmsOtpService smsOtpService,
@@ -62,6 +66,7 @@ public class TransferService {
 		this.transactionRepository = transactionRepository;
 		this.transactionAuthenticationRepository = transactionAuthenticationRepository;
 		this.ledgerRepository = ledgerRepository;
+		this.transferQrIntentRepository = transferQrIntentRepository;
 		this.passwordEncoder = passwordEncoder;
 		this.rsaSignatureService = rsaSignatureService;
 		this.smsOtpService = smsOtpService;
@@ -109,6 +114,21 @@ public class TransferService {
 		}
 
 		Transaction tx = null;
+		TransferQrIntent qrIntent = null;
+		if (request.qrTransferIntentId() != null) {
+			qrIntent = transferQrIntentRepository.findById(request.qrTransferIntentId())
+				.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "QR transfer intent not found"));
+			if (qrIntent.getCreatedByUser() == null || qrIntent.getCreatedByUser().getId() == null) {
+				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "QR transfer intent is invalid");
+			}
+			if (!qrIntent.getCreatedByUser().getId().equals(user.getId()) && !user.getId().equals(qrIntent.getClaimedByUserId())) {
+				throw new ResponseStatusException(HttpStatus.FORBIDDEN, "QR transfer intent is not claimed by this user");
+			}
+			if (!"claimed".equalsIgnoreCase(qrIntent.getStatus()) && !"active".equalsIgnoreCase(qrIntent.getStatus())) {
+				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "QR transfer intent is not available");
+			}
+		}
+
 		if (request.idempotencyKey() != null && !request.idempotencyKey().isBlank()) {
 			Optional<Transaction> existing = transactionRepository.findByIdempotencyKey(request.idempotencyKey().trim());
 			if (existing.isPresent()) {
@@ -135,6 +155,7 @@ public class TransferService {
 				.description(request.description() == null ? null : request.description().trim())
 				.status("pending")
 				.initiatedByUser(user)
+					.qrTransferIntent(qrIntent)
 				.build();
 			tx = transactionRepository.save(tx);
 
@@ -171,6 +192,13 @@ public class TransferService {
 			auth.setDigitalSignature(request.signature());
 			auth.setAuthStatus("pin_verified");
 			transactionAuthenticationRepository.save(auth);
+		}
+
+		if (qrIntent != null) {
+			if (tx.getQrTransferIntent() == null) {
+				tx.setQrTransferIntent(qrIntent);
+				transactionRepository.save(tx);
+			}
 		}
 
 		return new TransferInitiateResponse(
@@ -269,6 +297,10 @@ public class TransferService {
 			tx.setStatus("completed");
 			tx.setCompletedAt(Instant.now());
 		transactionRepository.save(tx);
+		if (tx.getQrTransferIntent() != null) {
+			transferQrIntentRepository.findById(tx.getQrTransferIntent().getId())
+				.ifPresent(intent -> transferQrIntentRepository.save(markCompleted(intent, tx.getId())));
+		}
 	
 		return new TransferConfirmResponse(
 			tx.getId(),
@@ -279,6 +311,13 @@ public class TransferService {
 			amount,
 			fromAccount.getAvailableBalance()
 		);
+	}
+
+	private static TransferQrIntent markCompleted(TransferQrIntent intent, long transactionId) {
+		intent.setStatus("completed");
+		intent.setCompletedAt(Instant.now());
+		intent.setCompletedTransactionId(transactionId);
+		return intent;
 	}
 
 	private Account resolveFromAccount(long userId, String fromAccountNumber) {

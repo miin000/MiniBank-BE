@@ -15,6 +15,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
 
 	Optional<Transaction> findByIdAndInitiatedByUserId(Long id, Long initiatedByUserId);
 
+	Optional<Transaction> findByQrTransferIntentId(Long qrTransferIntentId);
+
 	long countByStatus(String status);
 
 	@Query("select t from Transaction t where (t.fromAccount.user.id = :userId or t.toAccount.user.id = :userId) order by t.createdAt desc")
