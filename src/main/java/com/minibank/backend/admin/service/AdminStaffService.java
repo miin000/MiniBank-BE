@@ -32,6 +32,7 @@ public class AdminStaffService {
 		Map.entry("DASHBOARD", "Dashboard"),
 		Map.entry("CUSTOMER", "Customer Management"),
 		Map.entry("STAFF", "Staff Management"),
+		Map.entry("STAFF_CREATE", "Staff Create"),
 		Map.entry("PROCEDURE", "Procedure Handling"),
 		Map.entry("LIMIT", "Limit Management"),
 		Map.entry("TRANSACTION", "Transaction Management"),
@@ -116,6 +117,52 @@ public class AdminStaffService {
 		}
 
 		return toResponse(saved);
+	}
+
+	@Transactional
+	public AdminStaffResponse updateRoles(Long adminUserId, List<String> roles) {
+		AdminUser adminUser = adminUserRepository.findById(adminUserId)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Admin user not found"));
+
+		Set<String> requestedRoles = normalizeRoles(roles);
+		if (requestedRoles.isEmpty()) {
+			requestedRoles = Set.of(DEFAULT_ROLE);
+		}
+
+		adminUserRoleRepository.deleteByAdminUserId(adminUserId);
+		for (String code : requestedRoles) {
+			Role role = roleRepository.findByCode(code)
+				.orElseGet(() -> roleRepository.save(Role.builder()
+					.code(code)
+					.name(ROLE_NAMES.getOrDefault(code, code))
+					.description("Auto-created role")
+					.build()));
+
+			adminUserRoleRepository.save(AdminUserRole.builder()
+				.adminUser(adminUser)
+				.role(role)
+				.build());
+		}
+
+		return toResponse(adminUser);
+	}
+
+	@Transactional
+	public AdminStaffResponse updateStatus(Long adminUserId, String status) {
+		if (status == null || status.isBlank()) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Status is required");
+		}
+
+		AdminUser adminUser = adminUserRepository.findById(adminUserId)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Admin user not found"));
+
+		String normalized = status.trim().toLowerCase();
+		if (!normalized.equals("active") && !normalized.equals("blocked")) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid status");
+		}
+		adminUser.setStatus(normalized);
+		adminUserRepository.save(adminUser);
+		return toResponse(adminUser);
 	}
 
 	private Set<String> normalizeRoles(List<String> roles) {
