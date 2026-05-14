@@ -15,10 +15,48 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
 
 	Optional<Transaction> findByIdAndInitiatedByUserId(Long id, Long initiatedByUserId);
 
+	@Query("""
+		select t
+		from Transaction t
+		left join fetch t.fromAccount fromAccount
+		left join fetch fromAccount.user fromUser
+		left join fetch t.toAccount toAccount
+		left join fetch toAccount.user toUser
+		where fromUser.id = :userId or toUser.id = :userId
+		order by t.createdAt desc
+	""")
+	List<Transaction> findAllForUser(@Param("userId") Long userId);
+
+	@Query("""
+		select t
+		from Transaction t
+		left join fetch t.fromAccount fromAccount
+		left join fetch fromAccount.user fromUser
+		left join fetch t.toAccount toAccount
+		left join fetch toAccount.user toUser
+		where t.id = :transactionId
+		  and (fromUser.id = :userId or toUser.id = :userId)
+	""")
+	Optional<Transaction> findAccessibleByIdAndUserId(@Param("transactionId") Long transactionId, @Param("userId") Long userId);
+
 	Optional<Transaction> findByQrTransferIntentId(Long qrTransferIntentId);
 
 	long countByStatus(String status);
 
 	@Query("select t from Transaction t where (t.fromAccount.user.id = :userId or t.toAccount.user.id = :userId) order by t.createdAt desc")
 	List<Transaction> findRecentForUser(@Param("userId") Long userId, Pageable pageable);
+
+	@Query("select t from Transaction t where t.status = 'completed' and t.createdAt >= :from order by t.createdAt desc")
+	List<Transaction> findCompletedSince(@Param("from") java.time.Instant from);
+
+	@Query("""
+		select t
+		from Transaction t
+		left join fetch t.fromAccount fromAccount
+		left join fetch fromAccount.user fromUser
+		left join fetch t.toAccount toAccount
+		left join fetch toAccount.user toUser
+		order by t.createdAt desc
+	""")
+	List<Transaction> findAllWithAccounts();
 }

@@ -9,6 +9,8 @@ import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Optional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -22,6 +24,7 @@ import com.minibank.backend.account.entity.TransferQrIntent;
 import com.minibank.backend.account.repository.AccountBalanceLedgerRepository;
 import com.minibank.backend.account.repository.AccountRepository;
 import com.minibank.backend.account.repository.TransferQrIntentRepository;
+import com.minibank.backend.ai.service.AiTransactionClassificationService;
 import com.minibank.backend.common.otp.SmsOtpService;
 import com.minibank.backend.transaction.dto.TransferConfirmRequest;
 import com.minibank.backend.transaction.dto.TransferConfirmResponse;
@@ -37,6 +40,7 @@ import com.minibank.backend.user.repository.UserRepository;
 @Service
 public class TransferService {
 	private static final SecureRandom RNG = new SecureRandom();
+	private static final Logger log = LoggerFactory.getLogger(TransferService.class);
 
 	private final UserRepository userRepository;
 	private final AccountRepository accountRepository;
@@ -47,6 +51,7 @@ public class TransferService {
 	private final PasswordEncoder passwordEncoder;
 	private final RsaSignatureService rsaSignatureService;
 	private final SmsOtpService smsOtpService;
+	private final AiTransactionClassificationService aiTransactionClassificationService;
 	private final boolean debugReturnOtp;
 
 	public TransferService(
@@ -59,6 +64,7 @@ public class TransferService {
 		PasswordEncoder passwordEncoder,
 		RsaSignatureService rsaSignatureService,
 		SmsOtpService smsOtpService,
+		AiTransactionClassificationService aiTransactionClassificationService,
 		@Value("${app.otp.debug-return:false}") boolean debugReturnOtp
 	) {
 		this.userRepository = userRepository;
@@ -70,6 +76,7 @@ public class TransferService {
 		this.passwordEncoder = passwordEncoder;
 		this.rsaSignatureService = rsaSignatureService;
 		this.smsOtpService = smsOtpService;
+		this.aiTransactionClassificationService = aiTransactionClassificationService;
 		this.debugReturnOtp = debugReturnOtp;
 	}
 
@@ -300,6 +307,12 @@ public class TransferService {
 		if (tx.getQrTransferIntent() != null) {
 			transferQrIntentRepository.findById(tx.getQrTransferIntent().getId())
 				.ifPresent(intent -> transferQrIntentRepository.save(markCompleted(intent, tx.getId())));
+		}
+
+		try {
+			aiTransactionClassificationService.classifyIfEligible(tx);
+		} catch (Exception ex) {
+			log.warn("Failed to classify transaction {}: {}", tx.getId(), ex.getMessage());
 		}
 	
 		return new TransferConfirmResponse(
