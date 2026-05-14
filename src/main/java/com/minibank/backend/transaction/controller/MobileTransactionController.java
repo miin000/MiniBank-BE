@@ -2,7 +2,9 @@ package com.minibank.backend.transaction.controller;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -54,6 +56,8 @@ public class MobileTransactionController {
 	@GetMapping("/history")
 	@Transactional(readOnly = true)
 	public List<MobileTransactionSummary> history(
+		@RequestParam(value = "limit", required = false) Integer limit,
+		@RequestParam(value = "page", required = false) Integer page,
 		@RequestParam(value = "direction", required = false) String direction,
 		@RequestParam(value = "status", required = false) String status,
 		@RequestParam(value = "q", required = false) String q,
@@ -63,24 +67,43 @@ public class MobileTransactionController {
 		long userId = CurrentJwt.requireUserId();
 		String dir = normalize(direction);
 		String statusFilter = normalize(status);
-		String query = q == null ? null : q.trim().toLowerCase();
+		String query = q == null ? null : q.trim().toLowerCase(Locale.ROOT);
 		java.time.Instant fromInstant = parseInstant(from, "from");
 		java.time.Instant toInstant = parseInstant(to, "to");
 
 		List<Transaction> transactions = transactionRepository.findAllForUser(userId);
 		Map<Long, TransactionCategory> latestCategories = latestCategoryMap(transactions);
-		return transactions.stream()
-			.filter(tx -> {
-				if (dir == null || "all".equals(dir)) {
-					return true;
-				}
-				boolean incoming = isIncoming(tx, userId);
-				return "in".equals(dir) ? incoming : !incoming;
-			})
-			.filter(tx -> statusFilter == null || statusFilter.equalsIgnoreCase(tx.getStatus()))
+
+		java.util.stream.Stream<MobileTransactionSummary> stream = transactions.stream()
+			.filter(tx -> matchesDirection(tx, userId, dir))
+			.filter(tx -> matchesStatus(tx, statusFilter))
 			.filter(tx -> fromInstant == null || !tx.getCreatedAt().isBefore(fromInstant))
 			.filter(tx -> toInstant == null || !tx.getCreatedAt().isAfter(toInstant))
 			.filter(tx -> matchesQuery(tx, userId, query))
+			.map(tx -> toSummary(tx, userId, latestCategories.get(tx.getId())));
+
+		if (limit != null) {
+			int finalLimit = Math.min(Math.max(limit, 1), 50);
+			int finalPage = page == null ? 0 : Math.max(page, 0);
+			long offset = (long) finalPage * finalLimit;
+			stream = stream.skip(offset).limit(finalLimit);
+		}
+
+		return stream.toList();
+	}
+
+	@GetMapping("/pending")
+	@Transactional(readOnly = true)
+	public List<MobileTransactionSummary> pending(
+		@RequestParam(value = "limit", required = false) Integer limit
+	) {
+		long userId = CurrentJwt.requireUserId();
+		int finalLimit = limit == null ? 20 : Math.min(Math.max(limit, 1), 50);
+		Pageable pageable = PageRequest.of(0, finalLimit);
+		List<String> statuses = List.of("pending", "pending_review", "pending_manager");
+		List<Transaction> transactions = transactionRepository.findPendingForUser(userId, statuses, pageable);
+		Map<Long, TransactionCategory> latestCategories = latestCategoryMap(transactions);
+		return transactions.stream()
 			.map(tx -> toSummary(tx, userId, latestCategories.get(tx.getId())))
 			.toList();
 	}
@@ -128,33 +151,57 @@ public class MobileTransactionController {
 			));
 	}
 
-	private static boolean isIncoming(Transaction tx, long userId) {
-		Account to = tx.getToAccount();
-		return to != null && to.getUser() != null && userId == to.getUser().getId();
+	private static boolean matchesDirection(Transaction tx, long userId, String direction) {
+		if (direction == null || direction.isBlank() || direction.equals("all")) {
+			return true;
+		}
+		boolean incoming = isIncoming(tx, userId);
+		return direction.equals("in") ? incoming : !incoming;
+	}
+
+	private static boolean matchesStatus(Transaction tx, String status) {
+		if (status == null || status.isBlank() || "all".equals(status)) {
+			return true;
+		}
+		String normalized = status.toLowerCase(Locale.ROOT);
+		for (String token : normalized.split(",")) {
+			String s = token.trim();
+			if (!s.isEmpty() && s.equalsIgnoreCase(tx.getStatus())) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private static boolean matchesQuery(Transaction tx, long userId, String query) {
 		if (query == null || query.isBlank()) {
 			return true;
 		}
-		String transactionCode = tx.getTransactionCode() == null ? "" : tx.getTransactionCode().toLowerCase();
+		String transactionCode = tx.getTransactionCode() == null ? "" : tx.getTransactionCode().toLowerCase(Locale.ROOT);
 		if (transactionCode.contains(query)) {
 			return true;
 		}
 		Account counterparty = isIncoming(tx, userId) ? tx.getFromAccount() : tx.getToAccount();
-		if (counterparty == null) {
-			return false;
-		}
-		String accountNumber = counterparty.getAccountNumber() == null ? "" : counterparty.getAccountNumber().toLowerCase();
-		String accountName = counterparty.getAccountName() == null ? "" : counterparty.getAccountName().toLowerCase();
-		return accountNumber.contains(query) || accountName.contains(query);
+		return containsIgnoreCase(tx.getDescription(), query)
+			|| containsIgnoreCase(tx.getTransactionType(), query)
+			|| containsIgnoreCase(counterparty == null ? null : counterparty.getAccountNumber(), query)
+			|| containsIgnoreCase(counterparty == null ? null : counterparty.getAccountName(), query);
+	}
+
+	private static boolean containsIgnoreCase(String value, String query) {
+		return value != null && value.toLowerCase(Locale.ROOT).contains(query);
+	}
+
+	private static boolean isIncoming(Transaction tx, long userId) {
+		Account to = tx.getToAccount();
+		return to != null && to.getUser() != null && Objects.equals(to.getUser().getId(), userId);
 	}
 
 	private static String normalize(String value) {
 		if (value == null) {
 			return null;
 		}
-		String trimmed = value.trim().toLowerCase();
+		String trimmed = value.trim().toLowerCase(Locale.ROOT);
 		return trimmed.isBlank() ? null : trimmed;
 	}
 
@@ -168,4 +215,5 @@ public class MobileTransactionController {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, field + " must be ISO-8601 instant");
 		}
 	}
+
 }

@@ -53,6 +53,8 @@ public class TransferService {
 	private final SmsOtpService smsOtpService;
 	private final AiTransactionClassificationService aiTransactionClassificationService;
 	private final boolean debugReturnOtp;
+	private final BigDecimal largeThreshold;
+	private final BigDecimal managerThreshold;
 
 	public TransferService(
 		UserRepository userRepository,
@@ -65,7 +67,9 @@ public class TransferService {
 		RsaSignatureService rsaSignatureService,
 		SmsOtpService smsOtpService,
 		AiTransactionClassificationService aiTransactionClassificationService,
-		@Value("${app.otp.debug-return:false}") boolean debugReturnOtp
+		@Value("${app.otp.debug-return:false}") boolean debugReturnOtp,
+		@Value("${app.transaction.large-threshold:100000000}") BigDecimal largeThreshold,
+		@Value("${app.transaction.manager-threshold:200000000}") BigDecimal managerThreshold
 	) {
 		this.userRepository = userRepository;
 		this.accountRepository = accountRepository;
@@ -78,6 +82,8 @@ public class TransferService {
 		this.smsOtpService = smsOtpService;
 		this.aiTransactionClassificationService = aiTransactionClassificationService;
 		this.debugReturnOtp = debugReturnOtp;
+		this.largeThreshold = largeThreshold == null ? BigDecimal.ZERO : largeThreshold;
+		this.managerThreshold = managerThreshold == null ? BigDecimal.ZERO : managerThreshold;
 	}
 
 	@Transactional
@@ -260,6 +266,22 @@ public class TransferService {
 		auth.setAuthStatus("verified");
 		auth.setVerifiedAt(Instant.now());
 		transactionAuthenticationRepository.save(auth);
+
+		if (requiresLargeApproval(tx.getAmount())) {
+			String nextStatus = requiresManagerApproval(tx.getAmount()) ? "pending_manager" : "pending_review";
+			tx.setStatus(nextStatus);
+			transactionRepository.save(tx);
+			Account fromAcc = tx.getFromAccount();
+			return new TransferConfirmResponse(
+				tx.getId(),
+				tx.getStatus(),
+				tx.getCompletedAt(),
+				fromAcc.getAccountNumber(),
+				tx.getToAccount().getAccountNumber(),
+				tx.getAmount(),
+				fromAcc.getAvailableBalance()
+			);
+		}
 	
 		// ACID transfer: lock both accounts before updating balances.
 		Account fromAccount = accountRepository.findByIdForUpdate(tx.getFromAccount().getId())
@@ -331,6 +353,14 @@ public class TransferService {
 		intent.setCompletedAt(Instant.now());
 		intent.setCompletedTransactionId(transactionId);
 		return intent;
+	}
+
+	private boolean requiresLargeApproval(BigDecimal amount) {
+		return largeThreshold.compareTo(BigDecimal.ZERO) > 0 && amount.compareTo(largeThreshold) >= 0;
+	}
+
+	private boolean requiresManagerApproval(BigDecimal amount) {
+		return managerThreshold.compareTo(BigDecimal.ZERO) > 0 && amount.compareTo(managerThreshold) >= 0;
 	}
 
 	private Account resolveFromAccount(long userId, String fromAccountNumber) {

@@ -59,4 +59,27 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
 		order by t.createdAt desc
 	""")
 	List<Transaction> findAllWithAccounts();
+
+	@Query("select t from Transaction t "
+		+ "join fetch t.fromAccount fa "
+		+ "join fetch fa.user fu "
+		+ "join fetch t.toAccount ta "
+		+ "join fetch ta.user tu "
+		+ "where t.status in :statuses "
+		+ "and t.amount >= :minAmount "
+		+ "order by t.createdAt desc")
+	List<Transaction> findLargePending(
+		@Param("statuses") List<String> statuses,
+		@Param("minAmount") java.math.BigDecimal minAmount
+	);
+
+	@Query("select t from Transaction t "
+		+ "where t.initiatedByUser.id = :userId "
+		+ "and t.status in :statuses "
+		+ "order by t.createdAt desc")
+	List<Transaction> findPendingForUser(
+		@Param("userId") Long userId,
+		@Param("statuses") List<String> statuses,
+		Pageable pageable
+	);
 }
