@@ -13,6 +13,8 @@ import com.minibank.backend.account.entity.Account;
 import com.minibank.backend.account.repository.AccountRepository;
 import com.minibank.backend.admin.entity.AdminUser;
 import com.minibank.backend.admin.repository.AdminUserRepository;
+import com.minibank.backend.contract.repository.ContractRepository;
+import com.minibank.backend.contract.repository.ContractTemplateRepository;
 import com.minibank.backend.saving.dto.CreateSavingRequest;
 import com.minibank.backend.saving.dto.SavingProductResponse;
 import com.minibank.backend.saving.dto.SavingResponse;
@@ -49,6 +51,8 @@ public class SavingService {
     private final AccountRepository accountRepository;
     private final UserRepository userRepository;
     private final AdminUserRepository adminUserRepository;
+    private final ContractRepository contractRepository;
+    private final ContractTemplateRepository contractTemplateRepository;
 
     // ─── Public API ─────────────────────────────────────────────────────────
 
@@ -92,14 +96,27 @@ public class SavingService {
         validatePrincipalRange(request.principalAmount(), product);
         validateSufficientBalance(sourceAccount, request.principalAmount());
 
-        // 3. Debit source account
-        sourceAccount.setAvailableBalance(
-                sourceAccount.getAvailableBalance().subtract(request.principalAmount()));
-        accountRepository.save(sourceAccount);
+        // 3. Do NOT debit yet. Create saving in pending_contract state and generate a contract record.
 
-        // 4. Build and persist saving
+        // 4. Build and persist saving with status pending_contract
         Saving saving = buildSaving(user, product, sourceAccount, settlementAccount, request.principalAmount(), request.autoRenew());
+        saving.setStatus("pending_contract");
         saving = savingRepository.save(saving);
+
+        // 5. Generate contract record (MVP: pick first available template if any)
+        try {
+            com.minibank.backend.contract.entity.ContractTemplate tpl = contractTemplateRepository.findAll().stream().findFirst().orElse(null);
+            com.minibank.backend.contract.entity.Contract c = com.minibank.backend.contract.entity.Contract.builder()
+                .ownerType("saving")
+                .ownerId(saving.getId())
+                .template(tpl)
+                .contractNumber("SAV-C" + UUID.randomUUID().toString().substring(0,8).toUpperCase())
+                .status("SENT")
+                .build();
+            contractRepository.save(c);
+        } catch (Exception ex) {
+            // swallow — admin can create contract later
+        }
 
         return SavingResponse.from(saving);
     }

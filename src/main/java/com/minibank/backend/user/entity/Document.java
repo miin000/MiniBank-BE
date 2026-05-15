@@ -73,4 +73,13 @@ public class Document {
 
 	@Column(columnDefinition = "text")
 	private String note;
+
+	@Column(name = "signed_status", length = 32)
+	private String signedStatus;
+
+	@Column(name = "signed_by_user_id")
+	private Long signedByUserId;
+
+	@Column(name = "signed_at")
+	private Instant signedAt;
 }
