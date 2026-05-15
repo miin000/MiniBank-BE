@@ -21,6 +21,9 @@ import com.minibank.backend.user.dto.ProfileResponse;
 import com.minibank.backend.user.dto.ProfileUpdateRequest;
 import com.minibank.backend.user.dto.PublicKeyRequest;
 import com.minibank.backend.user.dto.SetTransactionPinRequest;
+import com.minibank.backend.user.dto.DocumentUploadRequest;
+import com.minibank.backend.user.entity.Document;
+import com.minibank.backend.user.repository.DocumentRepository;
 import com.minibank.backend.user.entity.User;
 import com.minibank.backend.user.repository.UserRepository;
 
@@ -32,11 +35,13 @@ public class MobileProfileController {
 	private final UserRepository userRepository;
 	private final AccountRepository accountRepository;
 	private final PasswordEncoder passwordEncoder;
+	private final DocumentRepository documentRepository;
 
-	public MobileProfileController(UserRepository userRepository, AccountRepository accountRepository, PasswordEncoder passwordEncoder) {
+	public MobileProfileController(UserRepository userRepository, AccountRepository accountRepository, PasswordEncoder passwordEncoder, DocumentRepository documentRepository) {
 		this.userRepository = userRepository;
 		this.accountRepository = accountRepository;
 		this.passwordEncoder = passwordEncoder;
+		this.documentRepository = documentRepository;
 	}
 
 	@GetMapping("/me")
@@ -155,5 +160,63 @@ public class MobileProfileController {
 
 		user.setDeviceId(null);
 		userRepository.save(user);
+	}
+
+	@PostMapping("/documents")
+	@ResponseStatus(HttpStatus.CREATED)
+	@Transactional
+	public Document uploadDocument(@Valid @RequestBody DocumentUploadRequest request) {
+		long userId = CurrentJwt.requireUserId();
+		Document doc = Document.builder()
+			.ownerType("USER")
+			.ownerId(userId)
+			.documentType(request.documentType().trim())
+			.fileName(blankToNull(request.fileName()))
+			.fileUrl(request.fileUrl().trim())
+			.mimeType(blankToNull(request.mimeType()))
+			.verifiedStatus("pending")
+			.signedStatus(isContractType(request.documentType()) ? "pending" : "not_applicable")
+			.uploadedByType("USER")
+			.uploadedById(userId)
+			.note(blankToNull(request.note()))
+			.build();
+		return documentRepository.save(doc);
+	}
+
+	@PostMapping("/documents/{documentId}/sign")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	@Transactional
+	public void signDocument(@PathVariable("documentId") Long documentId) {
+		long userId = CurrentJwt.requireUserId();
+		Document doc = documentRepository.findById(documentId)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
+		if (!"USER".equals(doc.getOwnerType()) || !userIdEquals(doc.getOwnerId(), userId)) {
+			throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not allowed to sign this document");
+		}
+
+		if (!"pending".equalsIgnoreCase(doc.getSignedStatus())) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Document is not pending signature");
+		}
+
+		doc.setSignedStatus("signed");
+		doc.setSignedByUserId(userId);
+		doc.setSignedAt(java.time.Instant.now());
+		documentRepository.save(doc);
+	}
+
+	private static boolean userIdEquals(Long a, long b) {
+		if (a == null) return false;
+		return a.longValue() == b;
+	}
+
+	private static boolean isContractType(String documentType) {
+		String normalized = documentType == null ? "" : documentType.trim().toLowerCase();
+		return normalized.equals("loan_contract") || normalized.equals("saving_contract");
+	}
+
+	private static String blankToNull(String value) {
+		if (value == null) return null;
+		String trimmed = value.trim();
+		return trimmed.isEmpty() ? null : trimmed;
 	}
 }
