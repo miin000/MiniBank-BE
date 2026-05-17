@@ -1,5 +1,6 @@
 package com.minibank.backend.system.service;
 
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.stereotype.Service;
@@ -11,6 +12,7 @@ import com.minibank.backend.system.repository.SystemLogRepository;
 
 @Service
 public class SystemLogService {
+
 	private final SystemLogRepository systemLogRepository;
 	private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -27,10 +29,15 @@ public class SystemLogService {
 		if (metadata == null || metadata.isEmpty()) {
 			return null;
 		}
+
 		try {
 			return objectMapper.writeValueAsString(metadata);
 		} catch (Exception e) {
 			return null;
 		}
+	}
+
+	public List<SystemLog> getAllLogs() {
+		return systemLogRepository.findAll();
 	}
 }
