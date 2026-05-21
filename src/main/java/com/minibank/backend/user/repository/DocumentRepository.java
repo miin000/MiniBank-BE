@@ -1,5 +1,7 @@
 package com.minibank.backend.user.repository;
 
+import java.util.List;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -9,6 +11,12 @@ import org.springframework.data.repository.query.Param;
 import com.minibank.backend.user.entity.Document;
 
 public interface DocumentRepository extends JpaRepository<Document, Long> {
+
+	List<Document> findTop20ByOwnerTypeIgnoreCaseAndOwnerIdAndDocumentTypeStartingWithIgnoreCaseOrderByUploadedAtDesc(
+		String ownerType,
+		Long ownerId,
+		String documentTypePrefix
+	);
 
 	@Query(
 		"select d from Document d " +

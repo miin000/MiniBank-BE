@@ -3,6 +3,8 @@ package com.minibank.backend.loan.controller;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -63,10 +65,10 @@ public class MobileContractController {
 
         // loan_application owned by user
         loanApplicationRepository.findByUserId(userId)
-            .forEach(app -> result.addAll(contractRepository.findByOwnerTypeAndOwnerId("loan_application", app.getId())));
+            .forEach(app -> result.addAll(contractRepository.findByOwnerTypeAndOwnerIdOrderByCreatedAtDesc("loan_application", app.getId())));
 
         // savings owned by user
-        savingRepository.findByUserId(userId).forEach(s -> result.addAll(contractRepository.findByOwnerTypeAndOwnerId("saving", s.getId())));
+        savingRepository.findByUserId(userId).forEach(s -> result.addAll(contractRepository.findByOwnerTypeAndOwnerIdOrderByCreatedAtDesc("saving", s.getId())));
 
         return result;
     }
@@ -111,7 +113,15 @@ public class MobileContractController {
 
             // Activate saving
             s.setStatus("active");
-            s.setOpenDate(Instant.now());
+            Instant now = Instant.now();
+            s.setOpenDate(now);
+            if (s.getMaturityDate() == null) {
+                ZonedDateTime base = now.atZone(ZoneId.systemDefault());
+                ZonedDateTime maturity = "MONTH".equalsIgnoreCase(s.getTermUnit())
+                    ? base.plusMonths(s.getTermValue())
+                    : base.plusYears(s.getTermValue());
+                s.setMaturityDate(maturity.toInstant());
+            }
             savingRepository.save(s);
         }
 

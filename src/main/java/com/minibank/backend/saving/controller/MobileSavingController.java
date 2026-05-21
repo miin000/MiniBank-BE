@@ -2,6 +2,10 @@ package com.minibank.backend.saving.controller;
 
 import com.minibank.backend.common.security.CurrentJwt;
 import com.minibank.backend.saving.dto.CreateSavingRequest;
+import com.minibank.backend.saving.dto.SavingOpenConfirmRequest;
+import com.minibank.backend.saving.dto.SavingOpenConfirmResponse;
+import com.minibank.backend.saving.dto.SavingOpenInitiateRequest;
+import com.minibank.backend.saving.dto.SavingOpenInitiateResponse;
 import com.minibank.backend.saving.dto.SavingProductResponse;
 import com.minibank.backend.saving.dto.SavingResponse;
 import com.minibank.backend.saving.service.SavingService;
@@ -41,6 +45,22 @@ public class MobileSavingController {
     @ResponseStatus(HttpStatus.CREATED)
     public SavingResponse createSaving(@Valid @RequestBody CreateSavingRequest request) {
         return savingService.createSaving(CurrentJwt.requireUserId(), request);
+    }
+
+    /**
+     * Initiate saving opening: requires agreement accepted, sends OTP.
+     */
+    @PostMapping("/open/initiate")
+    public SavingOpenInitiateResponse initiateOpen(@Valid @RequestBody SavingOpenInitiateRequest request) {
+        return savingService.initiateOpenSaving(CurrentJwt.requireUserId(), request);
+    }
+
+    /**
+     * Confirm saving opening with OTP: debits funds and moves to pending_approval.
+     */
+    @PostMapping("/open/confirm")
+    public SavingOpenConfirmResponse confirmOpen(@Valid @RequestBody SavingOpenConfirmRequest request) {
+        return savingService.confirmOpenSaving(CurrentJwt.requireUserId(), request);
     }
 
     /**

@@ -3,6 +3,7 @@ package com.minibank.backend.contract.entity;
 import java.time.Instant;
 
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 
 import com.minibank.backend.admin.entity.AdminUser;
 
@@ -29,28 +30,48 @@ import lombok.Setter;
 @Entity
 @Table(name = "contracts")
 public class Contract {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "owner_type", nullable = false, length = 64)
-    private String ownerType; // e.g., "loan_application" or "saving"
-
-    @Column(name = "owner_id", nullable = false)
-    private Long ownerId;
+    @Column(name = "contract_number", length = 64)
+    private String contractNumber;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "template_id")
     private ContractTemplate template;
 
-    @Column(name = "contract_number", length = 64)
-    private String contractNumber;
+    /**
+     * Loại đối tượng: USER | loan_application | saving
+     */
+    @Column(name = "owner_type", nullable = false, length = 64)
+    private String ownerType;
 
+    /**
+     * ID của đối tượng tương ứng với ownerType
+     */
+    @Column(name = "owner_id", nullable = false)
+    private Long ownerId;
+
+    /**
+     * URL file hợp đồng đã render (lưu trên Cloudinary / local)
+     */
     @Column(name = "file_url")
     private String fileUrl;
 
-    @Column(name = "status", length = 32)
-    private String status; // DRAFT, SENT, PENDING_SIGNATURE, SIGNED, CANCELLED
+    /**
+     * Nội dung đã điền dữ liệu, lưu để audit / hiển thị lại
+     */
+    @Column(name = "rendered_body", columnDefinition = "text")
+    private String renderedBody;
+
+    /**
+     * Trạng thái: DRAFT | SENT | PENDING_SIGNATURE | SIGNED | CANCELLED
+     */
+    @Column(nullable = false, length = 32)
+    @Builder.Default
+    private String status = "DRAFT";
 
     @Column(name = "signed_at")
     private Instant signedAt;
@@ -62,4 +83,8 @@ public class Contract {
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
+
+    @UpdateTimestamp
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt;
 }

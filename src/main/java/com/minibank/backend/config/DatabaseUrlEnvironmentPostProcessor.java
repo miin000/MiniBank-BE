@@ -32,8 +32,10 @@ public class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPostProce
 		// raw env/dotenv keys too (SPRING_DATASOURCE_URL, DB_URL, DATABASE_URL, ...).
 		String candidateUrl = firstNonBlank(
 			environment.getProperty("spring.datasource.url"),
+			environment.getProperty("flyway.url"),
 			environment.getProperty("SPRING_DATASOURCE_URL"),
 			environment.getProperty("DB_URL"),
+			environment.getProperty("JDBC_DATABASE_URL"),
 			environment.getProperty("DATABASE_URL"),
 			environment.getProperty("NEON_DATABASE_URL")
 		);
@@ -48,15 +50,24 @@ public class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPostProce
 
 		Map<String, Object> props = new LinkedHashMap<>();
 		props.put("spring.datasource.url", jdbc.url());
+		props.put("flyway.url", jdbc.url());
 
 		String existingUsername = environment.getProperty("spring.datasource.username");
 		if (!hasText(existingUsername) && hasText(jdbc.username())) {
 			props.put("spring.datasource.username", jdbc.username());
 		}
+		String existingFlywayUser = environment.getProperty("flyway.user");
+		if (!hasText(existingFlywayUser) && hasText(jdbc.username())) {
+			props.put("flyway.user", jdbc.username());
+		}
 
 		String existingPassword = environment.getProperty("spring.datasource.password");
 		if (!hasText(existingPassword) && hasText(jdbc.password())) {
 			props.put("spring.datasource.password", jdbc.password());
+		}
+		String existingFlywayPassword = environment.getProperty("flyway.password");
+		if (!hasText(existingFlywayPassword) && hasText(jdbc.password())) {
+			props.put("flyway.password", jdbc.password());
 		}
 
 		PropertySource<?> propertySource = new MapPropertySource(PROPERTY_SOURCE_NAME, props);

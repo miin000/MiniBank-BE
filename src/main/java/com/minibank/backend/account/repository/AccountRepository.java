@@ -19,6 +19,9 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
 
 	List<Account> findByUserIdOrderByIdAsc(Long userId);
 
+	// Convenience: first account for a user (used by ContractDataResolver)
+	Optional<Account> findFirstByUserId(Long userId);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select a from Account a where a.accountNumber = :accountNumber")
 	Optional<Account> findByAccountNumberForUpdate(@Param("accountNumber") String accountNumber);

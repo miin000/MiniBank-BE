@@ -55,7 +55,7 @@ public class MobileAccountController {
 	public List<AccountResolveResponse> myAccounts() {
 		long userId = CurrentJwt.requireUserId();
 		return accountRepository.findByUserIdOrderByIdAsc(userId).stream()
-			.map(a -> new AccountResolveResponse(a.getAccountNumber(), a.getAccountName()))
+			.map(a -> new AccountResolveResponse(a.getId(), a.getAccountNumber(), a.getAccountName()))
 			.toList();
 	}
 
@@ -90,7 +90,7 @@ public class MobileAccountController {
 
 		Account acc = accountRepository.findByAccountNumber(accNo)
 			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Account not found"));
-		return new AccountResolveResponse(acc.getAccountNumber(), acc.getAccountName());
+		return new AccountResolveResponse(acc.getId(), acc.getAccountNumber(), acc.getAccountName());
 	}
 
 	@GetMapping("/suggestions")
@@ -134,7 +134,7 @@ public class MobileAccountController {
 			.build();
 		accountRepository.save(account);
 
-		return new AccountResolveResponse(account.getAccountNumber(), account.getAccountName());
+		return new AccountResolveResponse(account.getId(), account.getAccountNumber(), account.getAccountName());
 	}
 
 	@GetMapping("/me/qr")

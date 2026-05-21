@@ -2,24 +2,27 @@ package com.minibank.backend.loan.dto;
 
 import java.math.BigDecimal;
 
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 
 public record CreateLoanRequest(
-	@NotNull(message = "Loan product ID is required")
-	Long loanProductId,
+    @NotNull Long loanProductId,
 
-	@NotNull(message = "Disbursement account ID is required")
-	Long disbursementAccountId,
+    @NotNull Long disbursementAccountId,
+    @NotNull Long repaymentAccountId,
 
-	@NotNull(message = "Repayment account ID is required")
-	Long repaymentAccountId,
+    @NotNull @Positive BigDecimal amount,
 
-	@NotNull(message = "Amount is required")
-	@Positive(message = "Amount must be positive")
-	BigDecimal amount,
+    @NotNull @Min(1) @Max(360) Integer termMonths,
 
-	@NotBlank(message = "Loan purpose is required")
-	String purpose
+    @NotBlank String purpose,
+
+    // Tùy chọn nhưng quan trọng cho thẩm định
+    BigDecimal monthlyIncome,
+    String collateralDescription,  // null = tín chấp, có giá trị = thế chấp
+    String incomeProofUrl,
+    String collateralProofUrl
 ) {}

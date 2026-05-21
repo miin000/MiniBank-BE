@@ -3,86 +3,148 @@ package com.minibank.backend.admin.controller;
 import java.util.List;
 
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseStatus;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.MediaType;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
-import com.minibank.backend.contract.entity.Contract;
-import com.minibank.backend.contract.entity.ContractTemplate;
-import com.minibank.backend.contract.repository.ContractRepository;
-import com.minibank.backend.contract.repository.ContractTemplateRepository;
+import com.minibank.backend.common.security.CurrentJwt;
+import com.minibank.backend.contract.dto.*;
+import com.minibank.backend.contract.service.ContractService;
+import com.minibank.backend.contract.service.ContractTemplateService;
+import com.minibank.backend.contract.service.DocxParserService;
 
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 
+/**
+ * Base URL: /api/admin/contracts
+ *
+ * Templates:
+ *   GET    /templates                    - Danh sách tất cả mẫu
+ *   GET    /templates?service=loan       - Lọc theo dịch vụ
+ *   GET    /templates/{id}              - Chi tiết mẫu
+ *   POST   /templates                    - Tạo mẫu mới (JSON)
+ *   PUT    /templates/{id}              - Cập nhật mẫu
+ *   POST   /templates/{id}/archive      - Archive mẫu
+ *   POST   /templates/upload            - Upload file .docx → tạo mẫu
+ *   POST   /templates/parse-docx        - Chỉ parse, không tạo mẫu (preview)
+ *
+ * Contracts:
+ *   GET    /                            - Danh sách tất cả hợp đồng
+ *   GET    /?ownerType=USER&ownerId=5   - Lọc theo owner
+ *   GET    /{id}                        - Chi tiết hợp đồng
+ *   POST   /generate                    - Sinh hợp đồng từ mẫu
+ *   PATCH  /{id}/status                 - Cập nhật trạng thái
+ */
 @RestController
 @RequestMapping("/api/admin/contracts")
+@PreAuthorize("hasAnyRole('ADMIN', 'STAFF')")
+@RequiredArgsConstructor
 public class AdminContractController {
-    private final ContractTemplateRepository templateRepository;
-    private final ContractRepository contractRepository;
 
-    public AdminContractController(ContractTemplateRepository templateRepository, ContractRepository contractRepository) {
-        this.templateRepository = templateRepository;
-        this.contractRepository = contractRepository;
-    }
+    private final ContractTemplateService templateService;
+    private final ContractService contractService;
+    private final DocxParserService docxParser;
+
+    // ── Template endpoints ────────────────────────────────────────────────────
 
     @GetMapping("/templates")
-    public List<ContractTemplate> listTemplates() {
-        return templateRepository.findAll();
+    public List<TemplateSummary> listTemplates(
+            @RequestParam(required = false) String service) {
+        if (service != null && !service.isBlank()) {
+            return templateService.listByService(service);
+        }
+        return templateService.listAll();
+    }
+
+    @GetMapping("/templates/{id}")
+    public TemplateDetail getTemplate(@PathVariable Long id) {
+        return templateService.getDetail(id);
     }
 
     @PostMapping("/templates")
     @ResponseStatus(HttpStatus.CREATED)
-    public ContractTemplate createTemplate(@Valid @RequestBody ContractTemplate t) {
-        return templateRepository.save(t);
+    public TemplateDetail createTemplate(@Valid @RequestBody TemplateUpsertRequest req) {
+        return templateService.create(req, CurrentJwt.requireUserId());
     }
+
+    @PutMapping("/templates/{id}")
+    public TemplateDetail updateTemplate(@PathVariable Long id,
+                                         @Valid @RequestBody TemplateUpsertRequest req) {
+        return templateService.update(id, req, CurrentJwt.requireUserId());
+    }
+
+    @PostMapping("/templates/{id}/archive")
+    public void archiveTemplate(@PathVariable Long id) {
+        templateService.archive(id, CurrentJwt.requireUserId());
+    }
+
+    /**
+     * Upload file .docx → parse → tạo template mới
+     */
+    @PostMapping(value = "/templates/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public TemplateDetail uploadTemplate(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("name") String name,
+            @RequestParam("code") String code,
+            @RequestParam(value = "description", required = false) String description,
+            @RequestParam(value = "services", defaultValue = "general") String services) throws Exception {
+
+        if (file.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File không được rỗng");
+        }
+        String originalFilename = file.getOriginalFilename();
+        if (originalFilename == null || !originalFilename.toLowerCase().endsWith(".docx")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Chỉ hỗ trợ file .docx");
+        }
+        return templateService.uploadDocx(file, name, code, description, services,
+                CurrentJwt.requireUserId());
+    }
+
+    /**
+     * Chỉ parse .docx để preview placeholder, không lưu vào DB
+     */
+    @PostMapping(value = "/templates/parse-docx", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public DocxParseResult parseDocx(@RequestParam("file") MultipartFile file) throws Exception {
+        if (file.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File rỗng");
+        return docxParser.parse(file);
+    }
+
+    // ── Contract endpoints ────────────────────────────────────────────────────
 
     @GetMapping
-    public List<Contract> listContracts() {
-        return contractRepository.findAll();
+    public List<ContractSummary> listContracts(
+            @RequestParam(required = false) String ownerType,
+            @RequestParam(required = false) Long ownerId) {
+        if (ownerType != null && ownerId != null) {
+            return contractService.listByOwner(ownerType, ownerId);
+        }
+        return contractService.listAll();
     }
 
-    @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    public Contract createContract(@Valid @RequestBody Contract c) {
-        c.setStatus(c.getStatus() == null ? "DRAFT" : c.getStatus());
-        return contractRepository.save(c);
+    @GetMapping("/acceptances")
+    public List<ContractAcceptanceSummary> listAcceptances(
+            @RequestParam(defaultValue = "all") String type) {
+        return contractService.listAcceptances(type);
     }
 
     @GetMapping("/{id}")
-    public Contract get(@PathVariable Long id) {
-        return contractRepository.findById(id).orElseThrow();
+    public ContractDetail getContract(@PathVariable Long id) {
+        return contractService.getDetail(id);
     }
 
     @PostMapping("/generate")
     @ResponseStatus(HttpStatus.CREATED)
-    public Contract generateContract(@RequestBody GenerateRequest req) {
-        ContractTemplate t = templateRepository.findById(req.templateId).orElseThrow();
-        Contract c = Contract.builder()
-            .ownerType(req.ownerType)
-            .ownerId(req.ownerId)
-            .template(t)
-            .contractNumber(req.contractNumber)
-            .status("SENT")
-            .build();
-        return contractRepository.save(c);
+    public ContractDetail generateContract(@Valid @RequestBody ContractGenerateRequest req) {
+        return contractService.generate(req, CurrentJwt.requireUserId());
     }
 
-    @PostMapping("/{id}/signed")
-    public Contract markSigned(@PathVariable Long id) {
-        Contract c = contractRepository.findById(id).orElseThrow();
-        c.setStatus("SIGNED");
-        c.setSignedAt(java.time.Instant.now());
-        return contractRepository.save(c);
-    }
-
-    public static class GenerateRequest {
-        public String ownerType;
-        public Long ownerId;
-        public Long templateId;
-        public String contractNumber;
+    @PatchMapping("/{id}/status")
+    public ContractDetail updateStatus(@PathVariable Long id,
+                                       @Valid @RequestBody ContractStatusRequest req) {
+        return contractService.updateStatus(id, req.status(), CurrentJwt.requireUserId());
     }
 }

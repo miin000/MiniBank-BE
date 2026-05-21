@@ -10,4 +10,6 @@ import com.minibank.backend.loan.entity.LoanApplication;
 @Repository
 public interface LoanApplicationRepository extends JpaRepository<LoanApplication, Long> {
     List<LoanApplication> findByUserId(Long userId);
+
+    List<LoanApplication> findByStatusOrderBySubmittedAtDesc(String status);
 }

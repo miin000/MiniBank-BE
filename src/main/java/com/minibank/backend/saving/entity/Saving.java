@@ -3,11 +3,11 @@ package com.minibank.backend.saving.entity;
 import java.math.BigDecimal;
 import java.time.Instant;
 
+import org.hibernate.annotations.CreationTimestamp;
+
 import com.minibank.backend.account.entity.Account;
 import com.minibank.backend.admin.entity.AdminUser;
 import com.minibank.backend.user.entity.User;
-
-import org.hibernate.annotations.CreationTimestamp;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -142,6 +142,16 @@ public class Saving {
 	@Column(nullable = false, length = 32)
 	private String status;
 
+	@Column(name = "rejection_reason", columnDefinition = "text")
+	private String rejectionReason;
+
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "reviewed_by_id")
+	private AdminUser reviewedBy;
+
+	@Column(name = "reviewed_at")
+	private Instant reviewedAt;
+
 	@Column(name = "open_date")
 	private Instant openDate;
 
@@ -169,6 +179,12 @@ public class Saving {
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "closed_by_id")
 	private AdminUser closedBy;
+
+	@Column(name = "agreement_accepted_at")
+	private Instant agreementAcceptedAt;
+
+	@Column(name = "agreement_version", length = 32)
+	private String agreementVersion;
 
 	@Column(nullable = false)
 	private boolean locked;

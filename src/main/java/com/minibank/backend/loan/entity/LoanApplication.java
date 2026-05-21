@@ -3,10 +3,10 @@ package com.minibank.backend.loan.entity;
 import java.math.BigDecimal;
 import java.time.Instant;
 
+import org.hibernate.annotations.CreationTimestamp;
+
 import com.minibank.backend.admin.entity.AdminUser;
 import com.minibank.backend.user.entity.User;
-
-import org.hibernate.annotations.CreationTimestamp;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -57,6 +57,12 @@ public class LoanApplication {
 
 	@Column(name = "collateral_description", columnDefinition = "text")
 	private String collateralDescription;
+
+	@Column(name = "income_proof_url", columnDefinition = "text")
+	private String incomeProofUrl;
+
+	@Column(name = "collateral_proof_url", columnDefinition = "text")
+	private String collateralProofUrl;
 
 	@Column(name = "priority_tag", length = 32)
 	private String priorityTag;

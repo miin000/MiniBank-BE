@@ -1,0 +1,217 @@
+package com.minibank.backend.saving.controller;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+
+import com.minibank.backend.contract.entity.Contract;
+import com.minibank.backend.contract.repository.ContractRepository;
+import com.minibank.backend.saving.dto.SavingResponse;
+import com.minibank.backend.saving.entity.Saving;
+import com.minibank.backend.saving.repository.SavingRepository;
+import com.minibank.backend.saving.service.SavingService;
+import com.minibank.backend.user.entity.Document;
+import com.minibank.backend.user.repository.DocumentRepository;
+
+import lombok.RequiredArgsConstructor;
+
+@RestController
+@RequestMapping("/api/admin/savings")
+@RequiredArgsConstructor
+public class AdminSavingController {
+
+    private final SavingRepository savingRepository;
+    private final SavingService savingService;
+    private final DocumentRepository documentRepository;
+    private final ContractRepository contractRepository;
+
+    @GetMapping
+    @Transactional(readOnly = true)
+    public List<SavingResponse> list(@RequestParam(required = false) String status) {
+        List<Saving> items = loadSavings(status);
+        return items.stream().map(SavingResponse::from).toList();
+    }
+
+    @GetMapping("/{id}")
+    @Transactional(readOnly = true)
+    public SavingApprovalDetail getDetail(@PathVariable Long id) {
+        Saving saving = savingRepository.findWithDetailsById(id)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Saving not found"));
+
+        List<SavingDocumentItem> documents = documentRepository
+            .findTop20ByOwnerTypeIgnoreCaseAndOwnerIdAndDocumentTypeStartingWithIgnoreCaseOrderByUploadedAtDesc(
+                "USER",
+                saving.getUser().getId(),
+                "saving_"
+            )
+            .stream()
+            // keep only newest file per type to avoid duplicated rows in admin UI
+            .collect(
+                java.util.stream.Collectors.toMap(
+                    d -> normalizeDocType(d.getDocumentType()),
+                    d -> d,
+                    (left, right) -> left,
+                    java.util.LinkedHashMap::new
+                )
+            )
+            .values()
+            .stream()
+            .map(this::toDocumentItem)
+            .toList();
+
+        Contract latestContract = contractRepository
+            .findByOwnerTypeAndOwnerIdOrderByCreatedAtDesc("saving", saving.getId())
+            .stream()
+            .findFirst()
+            .orElse(null);
+
+        return new SavingApprovalDetail(
+            saving.getId(),
+            saving.getCode(),
+            saving.getStatus(),
+            saving.getPrincipalAmount(),
+            saving.getActualInterestRate(),
+            saving.getTermUnit(),
+            saving.getTermValue(),
+            saving.isAutoRenew(),
+            saving.getOpenDate(),
+            saving.getMaturityDate(),
+            saving.getAgreementAcceptedAt(),
+            saving.getAgreementVersion(),
+            saving.getSourceAccount() != null ? saving.getSourceAccount().getId() : null,
+            saving.getSourceAccount() != null ? saving.getSourceAccount().getAccountNumber() : null,
+            saving.getSourceAccount() != null ? saving.getSourceAccount().getAccountName() : null,
+            saving.getSettlementAccount() != null ? saving.getSettlementAccount().getId() : null,
+            saving.getSettlementAccount() != null ? saving.getSettlementAccount().getAccountNumber() : null,
+            saving.getSettlementAccount() != null ? saving.getSettlementAccount().getAccountName() : null,
+            saving.getSavingProduct() != null ? saving.getSavingProduct().getId() : null,
+            saving.getSavingProduct() != null ? saving.getSavingProduct().getCode() : null,
+            saving.getSavingProduct() != null ? saving.getSavingProduct().getName() : null,
+            saving.getUser() != null ? saving.getUser().getId() : null,
+            saving.getUser() != null ? saving.getUser().getFullName() : null,
+            saving.getUser() != null ? saving.getUser().getPhone() : null,
+            saving.getUser() != null ? saving.getUser().getEmail() : null,
+            saving.getRejectionReason(),
+            documents,
+            latestContract != null ? latestContract.getId() : null,
+            latestContract != null ? latestContract.getContractNumber() : null,
+            latestContract != null ? latestContract.getStatus() : null
+        );
+    }
+
+    @PostMapping("/{id}/approve")
+    public SavingResponse approve(@PathVariable Long id) {
+        return savingService.approveSaving(id);
+    }
+
+    public static record RejectRequest(String reason) {}
+
+    @PostMapping("/{id}/reject")
+    public void reject(
+        @PathVariable Long id,
+        @RequestBody(required = false) RejectRequest body
+    ) {
+        savingService.rejectSaving(id, body != null ? body.reason() : null);
+    }
+
+    private List<Saving> loadSavings(String status) {
+        if (status == null || status.isBlank()) {
+            return savingRepository.findAllByOrderByCreatedAtDesc();
+        }
+
+        Set<String> statuses = Arrays.stream(status.split(","))
+            .map(String::trim)
+            .filter(s -> !s.isBlank())
+            .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+
+        if (statuses.isEmpty()) {
+            return savingRepository.findAllByOrderByCreatedAtDesc();
+        }
+        if (statuses.size() == 1) {
+            return savingRepository.findByStatusOrderByCreatedAtDesc(statuses.iterator().next());
+        }
+
+        return statuses.stream()
+            .flatMap(s -> savingRepository.findByStatusOrderByCreatedAtDesc(s).stream())
+            .sorted(Comparator.comparing(Saving::getCreatedAt).reversed())
+            .toList();
+    }
+
+    private SavingDocumentItem toDocumentItem(Document doc) {
+        return new SavingDocumentItem(
+            doc.getId(),
+            doc.getDocumentType(),
+            doc.getFileName(),
+            doc.getFileUrl(),
+            doc.getMimeType(),
+            doc.getVerifiedStatus(),
+            doc.getUploadedAt(),
+            doc.getNote()
+        );
+    }
+
+    private String normalizeDocType(String docType) {
+        if (docType == null) return "";
+        return docType.trim().toLowerCase(Locale.ROOT);
+    }
+
+    public record SavingDocumentItem(
+        Long id,
+        String documentType,
+        String fileName,
+        String fileUrl,
+        String mimeType,
+        String verifiedStatus,
+        Instant uploadedAt,
+        String note
+    ) {}
+
+    public record SavingApprovalDetail(
+        Long id,
+        String code,
+        String status,
+        BigDecimal principalAmount,
+        BigDecimal actualInterestRate,
+        String termUnit,
+        int termValue,
+        boolean autoRenew,
+        Instant openDate,
+        Instant maturityDate,
+        Instant agreementAcceptedAt,
+        String agreementVersion,
+        Long sourceAccountId,
+        String sourceAccountNumber,
+        String sourceAccountName,
+        Long settlementAccountId,
+        String settlementAccountNumber,
+        String settlementAccountName,
+        Long productId,
+        String productCode,
+        String productName,
+        Long userId,
+        String userFullName,
+        String userPhone,
+        String userEmail,
+        String rejectionReason,
+        List<SavingDocumentItem> documents,
+        Long contractId,
+        String contractNumber,
+        String contractStatus
+    ) {}
+}
