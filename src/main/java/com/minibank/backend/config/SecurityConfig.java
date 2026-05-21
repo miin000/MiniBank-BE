@@ -25,22 +25,23 @@ import com.minibank.backend.system.logging.AdminAuditLogFilter;
 public class SecurityConfig {
 
 	@Bean
-	public SecurityFilterChain securityFilterChain(HttpSecurity http, DeviceLockFilter deviceLockFilter, AdminAuditLogFilter adminAuditLogFilter) throws Exception {
+	public SecurityFilterChain securityFilterChain(HttpSecurity http, DeviceLockFilter deviceLockFilter,
+			AdminAuditLogFilter adminAuditLogFilter) throws Exception {
 		http
-			.csrf(csrf -> csrf.disable())
-			.cors(Customizer.withDefaults())
-			.sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-			.authorizeHttpRequests(auth -> auth
-				.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-				.requestMatchers(HttpMethod.POST, "/api/admin/auth/login").permitAll()
-				.requestMatchers(HttpMethod.POST, "/api/mobile/auth/**").permitAll()
-				.anyRequest().authenticated()
-			)
-			.oauth2ResourceServer(oauth2 -> oauth2
-				.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
-			);
+				.csrf(csrf -> csrf.disable())
+				.cors(Customizer.withDefaults())
+				.sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+				.authorizeHttpRequests(auth -> auth
+						.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+						.requestMatchers(HttpMethod.POST, "/api/admin/auth/login").permitAll()
+						.requestMatchers(HttpMethod.POST, "/api/mobile/auth/**").permitAll()
+						.requestMatchers("/api/system-logs/**").permitAll()
+						.anyRequest().authenticated())
+				.oauth2ResourceServer(oauth2 -> oauth2
+						.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())));
 
-		http.addFilterAfter(deviceLockFilter, org.springframework.security.web.authentication.AnonymousAuthenticationFilter.class);
+		http.addFilterAfter(deviceLockFilter,
+				org.springframework.security.web.authentication.AnonymousAuthenticationFilter.class);
 		http.addFilterAfter(adminAuditLogFilter, DeviceLockFilter.class);
 
 		return http.build();
