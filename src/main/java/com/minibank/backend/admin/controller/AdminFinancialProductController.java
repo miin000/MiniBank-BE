@@ -83,6 +83,7 @@ public class AdminFinancialProductController {
     }
 
     @GetMapping("/saving-interest-tiers")
+    @Transactional(readOnly = true)
     public List<SavingTierItem> listSavingTiers(@RequestParam Long savingProductId) {
         return savingTierRepository.findBySavingProductIdOrderByEffectiveFromDescMinAmountAsc(savingProductId)
             .stream()
@@ -92,6 +93,7 @@ public class AdminFinancialProductController {
 
     @PostMapping("/saving-interest-tiers")
     @ResponseStatus(HttpStatus.CREATED)
+    @Transactional
     public SavingTierItem createSavingTier(@RequestBody SavingTierUpsertRequest req) {
         SavingProduct product = savingProductRepository.findById(req.savingProductId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Saving product not found"));
@@ -102,6 +104,7 @@ public class AdminFinancialProductController {
     }
 
     @PutMapping("/saving-interest-tiers/{id}")
+    @Transactional
     public SavingTierItem updateSavingTier(@PathVariable Long id, @RequestBody SavingTierUpsertRequest req) {
         SavingProductInterestTier tier = savingTierRepository.findById(id)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Saving tier not found"));
@@ -153,6 +156,7 @@ public class AdminFinancialProductController {
     }
 
     @GetMapping("/loan-interest-tiers")
+    @Transactional(readOnly = true)
     public List<LoanTierItem> listLoanTiers(@RequestParam Long loanProductId) {
         return loanTierRepository.findByLoanProductIdOrderByEffectiveFromDescMinAmountAsc(loanProductId)
             .stream()
@@ -162,6 +166,7 @@ public class AdminFinancialProductController {
 
     @PostMapping("/loan-interest-tiers")
     @ResponseStatus(HttpStatus.CREATED)
+    @Transactional
     public LoanTierItem createLoanTier(@RequestBody LoanTierUpsertRequest req) {
         LoanProduct product = loanProductRepository.findById(req.loanProductId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Loan product not found"));
@@ -172,6 +177,7 @@ public class AdminFinancialProductController {
     }
 
     @PutMapping("/loan-interest-tiers/{id}")
+    @Transactional
     public LoanTierItem updateLoanTier(@PathVariable Long id, @RequestBody LoanTierUpsertRequest req) {
         LoanProductInterestTier tier = loanTierRepository.findById(id)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Loan tier not found"));
@@ -268,8 +274,11 @@ public class AdminFinancialProductController {
             p.getTermValue(),
             p.getInterestRateType(),
             p.getBaseInterestRate(),
+            p.getInterestAccrualFrequency(),
+            p.getInterestPostingFrequency(),
             p.getMinOpenAmount(),
             p.getMaxOpenAmount(),
+            p.getCloseFeeRate(),
             p.getStatus()
         );
     }
@@ -436,8 +445,11 @@ public class AdminFinancialProductController {
         int termValue,
         String interestRateType,
         BigDecimal baseInterestRate,
+        String interestAccrualFrequency,
+        String interestPostingFrequency,
         BigDecimal minOpenAmount,
         BigDecimal maxOpenAmount,
+        BigDecimal closeFeeRate,
         String status
     ) {}
 

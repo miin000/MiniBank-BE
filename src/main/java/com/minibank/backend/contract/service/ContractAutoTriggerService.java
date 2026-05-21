@@ -67,7 +67,7 @@ public class ContractAutoTriggerService {
             ContractTemplate tpl = templates.get(0);
 
             ContractGenerateRequest req = new ContractGenerateRequest(
-                    tpl.getId(), ownerType, ownerId, null // contractNumber tự sinh
+                    tpl.getId(), ownerType, ownerId, null, null // contractNumber tự sinh
             );
             ContractDetail result = contractService.generate(req, admin.getId());
             log.info("[ContractAutoTrigger] Đã sinh hợp đồng #{} ({}) cho {}#{}",
