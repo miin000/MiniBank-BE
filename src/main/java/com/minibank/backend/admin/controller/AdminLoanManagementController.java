@@ -26,6 +26,12 @@ import com.minibank.backend.loan.repository.LoanRepaymentScheduleRepository;
 import com.minibank.backend.loan.repository.LoanRepository;
 import com.minibank.backend.user.entity.User;
 
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+
+import com.minibank.backend.admin.service.AdminServiceRequestService;
+import com.minibank.backend.common.security.CurrentJwt;
+
 @RestController
 @RequestMapping("/api/admin")
 @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'LOAN_APPLICATION_APPROVAL')")
@@ -33,15 +39,18 @@ public class AdminLoanManagementController {
 	private final LoanApplicationRepository loanApplicationRepository;
 	private final LoanRepository loanRepository;
 	private final LoanRepaymentScheduleRepository scheduleRepository;
+	private final AdminServiceRequestService adminServiceRequestService;
 
 	public AdminLoanManagementController(
 		LoanApplicationRepository loanApplicationRepository,
 		LoanRepository loanRepository,
-		LoanRepaymentScheduleRepository scheduleRepository
+		LoanRepaymentScheduleRepository scheduleRepository,
+		AdminServiceRequestService adminServiceRequestService
 	) {
 		this.loanApplicationRepository = loanApplicationRepository;
 		this.loanRepository = loanRepository;
 		this.scheduleRepository = scheduleRepository;
+		this.adminServiceRequestService = adminServiceRequestService;
 	}
 
 	@GetMapping("/loan-applications")
@@ -125,6 +134,23 @@ public class AdminLoanManagementController {
 			.map(this::toScheduleItem)
 			.toList();
 		return new LoanDetail(toLoanItem(loan), schedules);
+	}
+
+	public record EarlySettlementRequest(Long repaymentAccountId, String note) {}
+
+	@PostMapping("/loans/{id}/early-settle")
+	@Transactional
+	public void earlySettle(
+		@PathVariable Long id,
+		@RequestBody(required = false) EarlySettlementRequest body
+	) {
+		long adminUserId = CurrentJwt.requireUserId();
+		adminServiceRequestService.settleLoanEarlyManually(
+			id,
+			body != null ? body.repaymentAccountId() : null,
+			adminUserId,
+			body != null ? body.note() : null
+		);
 	}
 
 	@GetMapping("/loan-repayment-schedules")

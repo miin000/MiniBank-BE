@@ -60,21 +60,6 @@ public class MobileContractController {
     }
 
     @GetMapping
-    public List<Contract> list() {
-        long userId = CurrentJwt.requireUserId();
-        List<Contract> result = new ArrayList<>();
-
-        // loan_application owned by user
-        loanApplicationRepository.findByUserId(userId)
-            .forEach(app -> result.addAll(contractRepository.findByOwnerTypeAndOwnerIdOrderByCreatedAtDesc("loan_application", app.getId())));
-
-        // savings owned by user
-        savingRepository.findByUserId(userId).forEach(s -> result.addAll(contractRepository.findByOwnerTypeAndOwnerIdOrderByCreatedAtDesc("saving", s.getId())));
-
-        return result;
-    }
-
-    @GetMapping
     public List<MobileContractResponse> list() {
         long userId = CurrentJwt.requireUserId();
         List<MobileContractResponse> result = new ArrayList<>();
@@ -92,17 +77,21 @@ public class MobileContractController {
 
     private MobileContractResponse toDto(Contract c) {
         return new MobileContractResponse(
-            c.getId(), c.getOwnerType(), c.getOwnerId(),
-            c.getContractCode(), c.getStatus(), c.getSignedAt(), c.getCreatedAt()
+            c.getId(),
+            c.getOwnerType(),
+            c.getOwnerId(),
+            c.getContractNumber(),
+            c.getStatus(),
+            c.getSignedAt(),
+            c.getCreatedAt()
         );
     }
 
     @PostMapping("/{id}/sign")
-    public Contract sign(@PathVariable Long id) {
+    public MobileContractResponse sign(@PathVariable Long id) {
         long userId = CurrentJwt.requireUserId();
         Contract c = contractRepository.findById(id).orElseThrow();
 
-        // Mark signed
         c.setStatus("SIGNED");
         c.setSignedAt(Instant.now());
         contractRepository.save(c);
@@ -214,7 +203,7 @@ public class MobileContractController {
             // Disburse: create transaction to user's disbursement account if exists
             Account to = null;
             if (loan.getDisbursementAccount() != null) {
-                Account to = loan.getDisbursementAccount();
+                to = loan.getDisbursementAccount();
                 to.setAvailableBalance(to.getAvailableBalance().add(loan.getDisbursedAmount()));
                 to.setCurrentBalance(to.getCurrentBalance().add(loan.getDisbursedAmount()));
                 accountRepository.save(to);
@@ -232,6 +221,6 @@ public class MobileContractController {
             transactionRepository.save(tx);
         }
 
-        return c;
+        return toDto(c);
     }
 }
