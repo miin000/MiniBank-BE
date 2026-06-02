@@ -64,6 +64,7 @@ public class AdminTransactionController {
 		Instant toInstant = parseInstant(to, "to");
 
 		return transactionRepository.findAllWithAccounts().stream()
+			.filter(this::isAdminVisibleTransaction)
 			.filter(tx -> statusFilter == null || statusFilter.equalsIgnoreCase(tx.getStatus()))
 			.filter(tx -> minAmount == null || tx.getAmount().compareTo(minAmount) >= 0)
 			.filter(tx -> maxAmount == null || tx.getAmount().compareTo(maxAmount) <= 0)
@@ -77,7 +78,9 @@ public class AdminTransactionController {
 	@GetMapping("/overview")
 	@Transactional(readOnly = true)
 	public AdminTransactionOverview overview() {
-		List<Transaction> transactions = transactionRepository.findAll();
+		List<Transaction> transactions = transactionRepository.findAll().stream()
+			.filter(this::isAdminVisibleTransaction)
+			.toList();
 		long total = transactions.size();
 		long completed = transactions.stream().filter(tx -> "completed".equalsIgnoreCase(tx.getStatus())).count();
 		BigDecimal totalAmount = transactions.stream()
@@ -95,7 +98,9 @@ public class AdminTransactionController {
 	) {
 		String query = normalize(q);
 		String categoryFilter = normalize(category);
-		List<Transaction> transactions = transactionRepository.findAllWithAccounts();
+		List<Transaction> transactions = transactionRepository.findAllWithAccounts().stream()
+			.filter(this::isAdminVisibleTransaction)
+			.toList();
 		Map<Long, TransactionCategory> latestCategories = latestCategoryMap(transactions);
 
 		return transactions.stream()
@@ -113,6 +118,7 @@ public class AdminTransactionController {
 	) {
 		BigDecimal threshold = minAmount == null ? pendingThreshold : minAmount;
 		return transactionRepository.findAllWithAccounts().stream()
+			.filter(this::isAdminVisibleTransaction)
 			.filter(tx -> "pending".equalsIgnoreCase(tx.getStatus()) || "pending_review".equalsIgnoreCase(tx.getStatus()))
 			.filter(tx -> tx.getAmount().compareTo(threshold) >= 0)
 			.map(tx -> toPendingLarge(tx, threshold))
@@ -244,6 +250,15 @@ public class AdminTransactionController {
 			|| fromName.contains(query)
 			|| toName.contains(query)
 			|| description.contains(query);
+	}
+
+	private boolean isAdminVisibleTransaction(Transaction tx) {
+		String type = tx.getTransactionType();
+		if (type == null) {
+			return true;
+		}
+		String normalized = type.trim().toLowerCase();
+		return !normalized.startsWith("saving_");
 	}
 
 	private BigDecimal safeConfidence(BigDecimal confidence) {

@@ -49,6 +49,7 @@ public class MobileTransactionController {
 		List<Transaction> transactions = transactionRepository.findRecentForUser(userId, pageable);
 		Map<Long, TransactionCategory> latestCategories = latestCategoryMap(transactions);
 		return transactions.stream()
+			.filter(this::isMobileVisibleTransaction)
 			.map(tx -> toSummary(tx, userId, latestCategories.get(tx.getId())))
 			.toList();
 	}
@@ -75,6 +76,7 @@ public class MobileTransactionController {
 		Map<Long, TransactionCategory> latestCategories = latestCategoryMap(transactions);
 
 		java.util.stream.Stream<MobileTransactionSummary> stream = transactions.stream()
+			.filter(this::isMobileVisibleTransaction)
 			.filter(tx -> matchesDirection(tx, userId, dir))
 			.filter(tx -> matchesStatus(tx, statusFilter))
 			.filter(tx -> fromInstant == null || !tx.getCreatedAt().isBefore(fromInstant))
@@ -104,8 +106,17 @@ public class MobileTransactionController {
 		List<Transaction> transactions = transactionRepository.findPendingForUser(userId, statuses, pageable);
 		Map<Long, TransactionCategory> latestCategories = latestCategoryMap(transactions);
 		return transactions.stream()
+			.filter(this::isMobileVisibleTransaction)
 			.map(tx -> toSummary(tx, userId, latestCategories.get(tx.getId())))
 			.toList();
+	}
+
+	private boolean isMobileVisibleTransaction(Transaction tx) {
+		String type = tx.getTransactionType();
+		if (type == null) {
+			return true;
+		}
+		return !type.trim().toLowerCase(Locale.ROOT).startsWith("saving_");
 	}
 
 	private static MobileTransactionSummary toSummary(

@@ -22,6 +22,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 import com.minibank.backend.contract.entity.Contract;
 import com.minibank.backend.contract.repository.ContractRepository;
+import com.minibank.backend.admin.service.AdminServiceRequestService;
+import com.minibank.backend.common.security.CurrentJwt;
 import com.minibank.backend.saving.dto.SavingResponse;
 import com.minibank.backend.saving.entity.Saving;
 import com.minibank.backend.saving.repository.SavingRepository;
@@ -38,6 +40,7 @@ public class AdminSavingController {
 
     private final SavingRepository savingRepository;
     private final SavingService savingService;
+    private final AdminServiceRequestService adminServiceRequestService;
     private final DocumentRepository documentRepository;
     private final ContractRepository contractRepository;
 
@@ -128,6 +131,22 @@ public class AdminSavingController {
         @RequestBody(required = false) RejectRequest body
     ) {
         savingService.rejectSaving(id, body != null ? body.reason() : null);
+    }
+
+    public static record CloseSavingRequest(Long settlementAccountId, String note) {}
+
+    @PostMapping("/{id}/close")
+    public void closeManually(
+        @PathVariable Long id,
+        @RequestBody(required = false) CloseSavingRequest body
+    ) {
+        long adminUserId = CurrentJwt.requireUserId();
+        adminServiceRequestService.closeSavingManually(
+            id,
+            body != null ? body.settlementAccountId() : null,
+            adminUserId,
+            body != null ? body.note() : null
+        );
     }
 
     private List<Saving> loadSavings(String status) {
