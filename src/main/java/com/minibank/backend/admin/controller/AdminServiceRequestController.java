@@ -24,7 +24,7 @@ import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping("/api/admin/service-requests")
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'Xem yêu cầu dịch vụ')")
 public class AdminServiceRequestController {
 	private final AdminServiceRequestService adminServiceRequestService;
 
@@ -48,6 +48,7 @@ public class AdminServiceRequestController {
 	}
 
 	@PostMapping("/{id}/approve")
+	@PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'Duyệt yêu cầu dịch vụ')")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public void approve(@PathVariable Long id, @Valid @RequestBody AdminServiceRequestDecisionRequest request) {
 		long adminUserId = CurrentJwt.requireUserId();
@@ -55,6 +56,7 @@ public class AdminServiceRequestController {
 	}
 
 	@PostMapping("/{id}/reject")
+	@PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'Từ chối yêu cầu dịch vụ')")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public void reject(@PathVariable Long id, @Valid @RequestBody AdminServiceRequestDecisionRequest request) {
 		long adminUserId = CurrentJwt.requireUserId();

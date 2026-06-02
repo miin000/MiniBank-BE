@@ -24,7 +24,7 @@ import jakarta.validation.Valid;
 
 @RestController
 @RequestMapping("/api/admin/kyc")
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'Xem hồ sơ KYC')")
 public class AdminKycController {
 	private final KycRequestRepository kycRequestRepository;
 	private final AdminKycService adminKycService;
@@ -53,6 +53,7 @@ public class AdminKycController {
 	}
 
 	@PostMapping("/{kycRequestId}/approve")
+	@PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'Phê duyệt KYC')")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public void approve(@PathVariable Long kycRequestId, @Valid @RequestBody KycDecisionRequest request) {
 		long adminUserId = CurrentJwt.requireUserId();
@@ -60,6 +61,7 @@ public class AdminKycController {
 	}
 
 	@PostMapping("/{kycRequestId}/reject")
+	@PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'Từ chối KYC')")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public void reject(@PathVariable Long kycRequestId, @Valid @RequestBody KycDecisionRequest request) {
 		long adminUserId = CurrentJwt.requireUserId();

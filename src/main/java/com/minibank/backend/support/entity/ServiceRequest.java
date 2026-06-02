@@ -5,6 +5,7 @@ import java.time.Instant;
 import com.minibank.backend.admin.entity.AdminUser;
 import com.minibank.backend.user.entity.User;
 
+import org.hibernate.annotations.ColumnTransformer;
 import org.hibernate.annotations.CreationTimestamp;
 
 import jakarta.persistence.Column;
@@ -53,7 +54,9 @@ public class ServiceRequest {
 	@Column(columnDefinition = "text")
 	private String description;
 
+	// Fix: cast String → jsonb on write so Hibernate doesn't send varchar to a jsonb column
 	@Column(name = "payload_json", columnDefinition = "jsonb")
+	@ColumnTransformer(write = "?::jsonb")
 	private String payloadJson;
 
 	@CreationTimestamp

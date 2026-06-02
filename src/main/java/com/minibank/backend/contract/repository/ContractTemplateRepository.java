@@ -20,10 +20,16 @@ public interface ContractTemplateRepository extends JpaRepository<ContractTempla
      * Tìm mẫu áp dụng cho một dịch vụ cụ thể (loan / saving / general).
      * services lưu dạng: "loan", "saving", "loan,saving", "general"
      */
-    @Query("select t from ContractTemplate t where t.status = 'active' " +
-           "and (t.services = :svc or t.services like concat('%', :svc, '%') " +
-           "     or t.services = 'general')")
-    List<ContractTemplate> findActiveByService(@Param("svc") String service);
+        @Query("select t from ContractTemplate t " +
+            "where lower(t.status) = 'active' " +
+            "and (lower(t.services) = :svc or lower(t.services) like concat('%', :svc, '%') " +
+            "     or lower(t.services) = 'general') " +
+            "order by coalesce(t.updatedAt, t.createdAt) desc")
+        List<ContractTemplate> findActiveByService(@Param("svc") String service);
+
+        @Query("select t from ContractTemplate t " +
+            "where lower(t.status) = 'active' and lower(t.code) = lower(:code)")
+        Optional<ContractTemplate> findActiveByCode(@Param("code") String code);
 
     boolean existsByCode(String code);
 

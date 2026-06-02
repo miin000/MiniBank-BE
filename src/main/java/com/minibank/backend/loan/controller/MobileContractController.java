@@ -19,6 +19,7 @@ import com.minibank.backend.account.repository.AccountRepository;
 import com.minibank.backend.common.security.CurrentJwt;
 import com.minibank.backend.contract.entity.Contract;
 import com.minibank.backend.contract.repository.ContractRepository;
+import com.minibank.backend.loan.dto.MobileContractResponse;
 import com.minibank.backend.loan.entity.Loan;
 import com.minibank.backend.loan.entity.LoanRepaymentSchedule;
 import com.minibank.backend.loan.repository.LoanApplicationRepository;
@@ -71,6 +72,29 @@ public class MobileContractController {
         savingRepository.findByUserId(userId).forEach(s -> result.addAll(contractRepository.findByOwnerTypeAndOwnerIdOrderByCreatedAtDesc("saving", s.getId())));
 
         return result;
+    }
+
+    @GetMapping
+    public List<MobileContractResponse> list() {
+        long userId = CurrentJwt.requireUserId();
+        List<MobileContractResponse> result = new ArrayList<>();
+
+        loanApplicationRepository.findByUserId(userId).forEach(app ->
+            contractRepository.findByOwnerTypeAndOwnerIdOrderByCreatedAtDesc("loan_application", app.getId())
+                .forEach(c -> result.add(toDto(c))));
+
+        savingRepository.findByUserId(userId).forEach(s ->
+            contractRepository.findByOwnerTypeAndOwnerIdOrderByCreatedAtDesc("saving", s.getId())
+                .forEach(c -> result.add(toDto(c))));
+
+        return result;
+    }
+
+    private MobileContractResponse toDto(Contract c) {
+        return new MobileContractResponse(
+            c.getId(), c.getOwnerType(), c.getOwnerId(),
+            c.getContractCode(), c.getStatus(), c.getSignedAt(), c.getCreatedAt()
+        );
     }
 
     @PostMapping("/{id}/sign")
@@ -145,6 +169,8 @@ public class MobileContractController {
                 .overduePrincipal(BigDecimal.ZERO)
                 .overdueInterest(BigDecimal.ZERO)
                 .status("active")
+                .disbursementAccount(app.getDisbursementAccount())
+                .repaymentAccount(app.getRepaymentAccount())
                 .disbursedAt(Instant.now())
                 .nextDueDate(java.util.Date.from(Instant.now()).toInstant())
                 .build();
@@ -188,7 +214,10 @@ public class MobileContractController {
             // Disburse: create transaction to user's disbursement account if exists
             Account to = null;
             if (loan.getDisbursementAccount() != null) {
-                to = accountRepository.findById(loan.getDisbursementAccount().getId()).orElse(null);
+                Account to = loan.getDisbursementAccount();
+                to.setAvailableBalance(to.getAvailableBalance().add(loan.getDisbursedAmount()));
+                to.setCurrentBalance(to.getCurrentBalance().add(loan.getDisbursedAmount()));
+                accountRepository.save(to);
             }
             Transaction tx = Transaction.builder()
                 .transactionCode("TXN-" + java.util.UUID.randomUUID().toString().substring(0,8).toUpperCase())

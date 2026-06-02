@@ -20,6 +20,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.minibank.backend.approval.dto.ApprovalProgressResponse;
+import com.minibank.backend.approval.service.MultiStepApprovalService;
 import com.minibank.backend.contract.entity.Contract;
 import com.minibank.backend.contract.repository.ContractRepository;
 import com.minibank.backend.saving.dto.SavingResponse;
@@ -40,12 +42,15 @@ public class AdminSavingController {
     private final SavingService savingService;
     private final DocumentRepository documentRepository;
     private final ContractRepository contractRepository;
+    private final MultiStepApprovalService multiStepApprovalService;
 
     @GetMapping
     @Transactional(readOnly = true)
     public List<SavingResponse> list(@RequestParam(required = false) String status) {
         List<Saving> items = loadSavings(status);
-        return items.stream().map(SavingResponse::from).toList();
+        return items.stream()
+            .map(saving -> SavingResponse.from(saving, multiStepApprovalService.findProgress("saving", saving.getId())))
+            .toList();
     }
 
     @GetMapping("/{id}")
@@ -107,17 +112,37 @@ public class AdminSavingController {
             saving.getUser() != null ? saving.getUser().getFullName() : null,
             saving.getUser() != null ? saving.getUser().getPhone() : null,
             saving.getUser() != null ? saving.getUser().getEmail() : null,
+            saving.getUser() != null ? saving.getUser().getDob() : null,
+            saving.getUser() != null ? saving.getUser().getAddress() : null,
+            saving.getUser() != null ? saving.getUser().getCitizenId() : null,
+            saving.getUser() != null ? saving.getUser().getCustomerRank() : null,
+            saving.getUser() != null ? saving.getUser().getCreditScoreLevel() : null,
             saving.getRejectionReason(),
             documents,
             latestContract != null ? latestContract.getId() : null,
             latestContract != null ? latestContract.getContractNumber() : null,
-            latestContract != null ? latestContract.getStatus() : null
+            latestContract != null ? latestContract.getStatus() : null,
+            multiStepApprovalService.findProgress("saving", saving.getId())
         );
     }
 
+    public static record ApproveRequest(String note) {}
+
     @PostMapping("/{id}/approve")
-    public SavingResponse approve(@PathVariable Long id) {
-        return savingService.approveSaving(id);
+    public SavingResponse approve(@PathVariable Long id, @RequestBody(required = false) ApproveRequest body) {
+        Saving saving = savingRepository.findWithDetailsById(id)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Saving not found"));
+        ApprovalProgressResponse progress = multiStepApprovalService.approve(
+            "saving",
+            saving.getId(),
+            saving.getPrincipalAmount(),
+            com.minibank.backend.common.security.CurrentJwt.requireUserId(),
+            body != null ? body.note() : null
+        );
+        if (progress.finalApproved()) {
+            return savingService.approveSaving(id);
+        }
+        return SavingResponse.from(saving, progress);
     }
 
     public static record RejectRequest(String reason) {}
@@ -127,6 +152,15 @@ public class AdminSavingController {
         @PathVariable Long id,
         @RequestBody(required = false) RejectRequest body
     ) {
+        Saving saving = savingRepository.findWithDetailsById(id)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Saving not found"));
+        multiStepApprovalService.reject(
+            "saving",
+            saving.getId(),
+            saving.getPrincipalAmount(),
+            com.minibank.backend.common.security.CurrentJwt.requireUserId(),
+            body != null ? body.reason() : null
+        );
         savingService.rejectSaving(id, body != null ? body.reason() : null);
     }
 
@@ -208,10 +242,16 @@ public class AdminSavingController {
         String userFullName,
         String userPhone,
         String userEmail,
+        java.time.LocalDate userDob,
+        String userAddress,
+        String userCitizenId,
+        String customerRank,
+        String creditScoreLevel,
         String rejectionReason,
         List<SavingDocumentItem> documents,
         Long contractId,
         String contractNumber,
-        String contractStatus
+        String contractStatus,
+        ApprovalProgressResponse approvalProgress
     ) {}
 }

@@ -7,6 +7,7 @@ public record TemplateSummary(
     String description,
     String services,
     String status,
+    String templateBody,
     String templateFileUrl,
     int placeholderCount,
     String createdAt,

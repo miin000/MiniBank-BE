@@ -32,4 +32,10 @@ public class Role {
 
 	@Column(columnDefinition = "text")
 	private String description;
+
+	@Column(length = 32)
+	private String color;
+
+	@Column(name = "permissions_json", columnDefinition = "text")
+	private String permissionsJson;
 }

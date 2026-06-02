@@ -95,17 +95,24 @@ public class ContractDataResolver {
         m.put("bank_name", "MiniBank");
         m.put("branch_name", "Chi nhánh Hà Nội");
         m.put("sign_date", DATE_FMT.format(Instant.now()));
+        m.put("today", DATE_FMT.format(Instant.now()));
+        m.put("contract_date", DATE_FMT.format(Instant.now()));
         return m;
     }
 
     private Map<String, String> fromUser(User u) {
         Map<String, String> m = new HashMap<>();
         m.put("full_name", nvl(u.getFullName()));
+        m.put("customer_name", nvl(u.getFullName()));
         m.put("phone", nvl(u.getPhone()));
+        m.put("customer_phone", nvl(u.getPhone()));
         m.put("email", nvl(u.getEmail()));
         m.put("citizen_id", nvl(u.getCitizenId()));
+        m.put("customer_citizen_id", nvl(u.getCitizenId()));
         m.put("address", nvl(u.getAddress()));
+        m.put("customer_address", nvl(u.getAddress()));
         m.put("dob", u.getDob() != null ? u.getDob().toString() : "");
+        m.put("customer_dob", u.getDob() != null ? u.getDob().toString() : "");
         m.put("customer_rank", nvl(u.getCustomerRank()));
         return m;
     }
@@ -124,6 +131,7 @@ public class ContractDataResolver {
         m.put("loan_term_months", String.valueOf(app.getRequestedTermMonths()));
         m.put("loan_purpose", nvl(app.getPurpose()));
         m.put("collateral", nvl(app.getCollateralDescription()));
+        m.put("collateral_desc", nvl(app.getCollateralDescription()));
         return m;
     }
 
@@ -132,10 +140,12 @@ public class ContractDataResolver {
         m.put("loan_amount", formatMoney(loan.getApprovedAmount()));
         m.put("loan_term_months", String.valueOf(loan.getTermMonths()));
         m.put("interest_rate", loan.getActualInterestRate().toPlainString());
+        m.put("loan_interest_rate", loan.getActualInterestRate().toPlainString());
         m.put("monthly_payment", formatMoney(
                 loan.getApprovedAmount()
                     .divide(java.math.BigDecimal.valueOf(loan.getTermMonths()), 0,
                             java.math.RoundingMode.HALF_UP)));
+        m.put("loan_monthly_payment", m.get("monthly_payment"));
         if (loan.getDisbursedAt() != null) {
             m.put("disburse_date", DATE_FMT.format(loan.getDisbursedAt()));
         }
@@ -148,13 +158,20 @@ public class ContractDataResolver {
     private Map<String, String> fromSaving(Saving sv) {
         Map<String, String> m = new HashMap<>();
         m.put("saving_principal", formatMoney(sv.getPrincipalAmount()));
+        m.put("saving_amount", formatMoney(sv.getPrincipalAmount()));
         m.put("saving_term", sv.getTermValue() + " " + sv.getTermUnit());
+        m.put("saving_term_months", sv.getTermUnit() != null && sv.getTermUnit().equalsIgnoreCase("YEAR")
+                ? String.valueOf(sv.getTermValue() * 12)
+                : String.valueOf(sv.getTermValue()));
         m.put("saving_interest", sv.getActualInterestRate().toPlainString());
+        m.put("saving_interest_rate", sv.getActualInterestRate().toPlainString());
         if (sv.getMaturityDate() != null) {
             m.put("maturity_date", DATE_FMT.format(sv.getMaturityDate()));
+            m.put("saving_maturity_date", DATE_FMT.format(sv.getMaturityDate()));
         }
         if (sv.getOpenDate() != null) {
             m.put("open_date", DATE_FMT.format(sv.getOpenDate()));
+            m.put("saving_open_date", DATE_FMT.format(sv.getOpenDate()));
         }
         m.put("auto_renew", sv.isAutoRenew() ? "Có" : "Không");
         return m;

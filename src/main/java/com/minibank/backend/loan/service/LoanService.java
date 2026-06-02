@@ -114,6 +114,8 @@ public class LoanService {
             .collateralProofUrl(req.collateralProofUrl())
             .priorityTag(priorityTag)
             .status("pending")
+            .disbursementAccount(disbursement)
+            .repaymentAccount(repayment)
             .build();
 
         application = loanApplicationRepository.save(application);

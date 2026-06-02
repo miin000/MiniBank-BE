@@ -19,6 +19,7 @@ import com.minibank.backend.contract.dto.TemplateSummary;
 import com.minibank.backend.contract.dto.TemplateUpsertRequest;
 import com.minibank.backend.contract.entity.ContractTemplate;
 import com.minibank.backend.contract.entity.ContractTemplatePlaceholder;
+import com.minibank.backend.contract.repository.ContractRepository;
 import com.minibank.backend.contract.repository.ContractTemplateRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -28,6 +29,7 @@ import lombok.RequiredArgsConstructor;
 public class ContractTemplateService {
 
     private final ContractTemplateRepository templateRepo;
+    private final ContractRepository contractRepo;
     private final AdminUserRepository adminUserRepo;
     private final DocxParserService docxParser;
     private final StorageService storageService;   // Cloudinary / local uploader
@@ -53,6 +55,26 @@ public class ContractTemplateService {
     @Transactional(readOnly = true)
     public TemplateDetail getDetail(Long id) {
         return toDetail(findOrThrow(id));
+    }
+
+    @Transactional(readOnly = true)
+    public TemplateSummary getActiveByCode(String code) {
+        if (code == null || code.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Thiếu mã template");
+        }
+        ContractTemplate tpl = findActiveTemplateByCodeOrAlias(code.trim())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Không tìm thấy template active cho mã: " + code));
+        return toSummary(tpl);
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.Optional<ContractTemplate> findActiveTemplateByCodeOrAlias(String code) {
+        for (String candidate : equivalentCodes(code)) {
+            java.util.Optional<ContractTemplate> tpl = templateRepo.findActiveByCode(candidate);
+            if (tpl.isPresent()) return tpl;
+        }
+        return java.util.Optional.empty();
     }
 
     // ── Create ────────────────────────────────────────────────────────────────
@@ -106,12 +128,12 @@ public class ContractTemplateService {
 
     // ── Upload DOCX ───────────────────────────────────────────────────────────
 
-    /**
-     * Upload file .docx:
-     *  1. Parse nội dung + placeholder
-     *  2. Lưu file lên storage
-     *  3. Tạo / cập nhật template
-     */
+    // /
+    //   Upload file .docx:
+    //    1. Parse nội dung + placeholder
+    //    2. Lưu file lên storage
+    //    3. Tạo / cập nhật template
+    //  /
     @Transactional
     public TemplateDetail uploadDocx(MultipartFile file,
                                      String name, String code,
@@ -161,12 +183,55 @@ public class ContractTemplateService {
         templateRepo.save(t);
     }
 
+      @Transactional
+      public TemplateDetail activate(Long id, Long adminId) {
+          AdminUser admin = requireAdmin(adminId);
+          ContractTemplate target = findOrThrow(id);
+     
+          // Không activate nếu đã active
+          if ("active".equalsIgnoreCase(target.getStatus())) {
+              return toDetail(target);
+          }
+     
+          // Archive tất cả template cùng code đang active
+          // (đảm bảo chỉ 1 bản active cho mỗi loại)
+          List<String> activeGroupCodes = equivalentCodes(target.getCode());
+          templateRepo.findAllByOrderByCreatedAtDesc().stream()
+                  .filter(t -> !t.getId().equals(id))
+                  .filter(t -> activeGroupCodes.contains(normalizeCode(t.getCode())))
+                  .filter(t -> "active".equalsIgnoreCase(t.getStatus()))
+                  .forEach(t -> {
+                      t.setStatus("archived");
+                      t.setUpdatedBy(admin);
+                      templateRepo.save(t);
+                  });
+     
+          // Activate target
+          target.setStatus("active");
+          target.setUpdatedBy(admin);
+          return toDetail(templateRepo.save(target));
+      }
+     
+      @Transactional
+      public void delete(Long id, Long adminId) {
+          ContractTemplate t = findOrThrow(id);
+          if ("active".equalsIgnoreCase(t.getStatus())) {
+              throw new ResponseStatusException(HttpStatus.CONFLICT,
+                      "Không thể xóa template đang active. Vui lòng archive trước.");
+          }
+          if (contractRepo.existsByTemplate_Id(id)) {
+              throw new ResponseStatusException(HttpStatus.CONFLICT,
+                      "Template đã phát sinh hợp đồng nên không thể xóa. Vui lòng archive để ngừng sử dụng.");
+          }
+          templateRepo.delete(t);
+      }
+
     // ── Mapping helpers ───────────────────────────────────────────────────────
 
     private TemplateSummary toSummary(ContractTemplate t) {
         return new TemplateSummary(
                 t.getId(), t.getName(), t.getCode(), t.getDescription(),
-                t.getServices(), t.getStatus(), t.getTemplateFileUrl(),
+                t.getServices(), t.getStatus(), t.getTemplateBody(), t.getTemplateFileUrl(),
                 t.getPlaceholders().size(),
                 t.getCreatedAt() != null ? FMT.format(t.getCreatedAt()) : null,
                 t.getUpdatedAt() != null ? FMT.format(t.getUpdatedAt()) : null
@@ -227,6 +292,20 @@ public class ContractTemplateService {
     private ContractTemplate findOrThrow(Long id) {
         return templateRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy mẫu #" + id));
+    }
+
+    private List<String> equivalentCodes(String code) {
+        return switch (normalizeCode(code)) {
+            case "LOAN_CREDIT", "UNSECURED_LOAN_CONTRACT" ->
+                    List.of("LOAN_CREDIT", "UNSECURED_LOAN_CONTRACT");
+            case "LOAN_MORTGAGE", "SECURED_LOAN_CONTRACT" ->
+                    List.of("LOAN_MORTGAGE", "SECURED_LOAN_CONTRACT");
+            default -> List.of(normalizeCode(code));
+        };
+    }
+
+    private String normalizeCode(String code) {
+        return code == null ? "" : code.trim().toUpperCase();
     }
 
     private AdminUser requireAdmin(Long id) {
