@@ -12,8 +12,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.minibank.backend.admin.entity.AdminUser;
+import com.minibank.backend.admin.entity.Role;
 import com.minibank.backend.admin.repository.AdminUserRepository;
 import com.minibank.backend.admin.repository.AdminUserRoleRepository;
+import com.minibank.backend.admin.repository.RoleRepository;
 import com.minibank.backend.auth.dto.AdminRegisterRequest;
 import com.minibank.backend.auth.dto.AuthOtpSendResponse;
 import com.minibank.backend.auth.dto.AuthResponse;
@@ -34,6 +36,7 @@ public class AuthService {
 
 	private final ObjectProvider<AdminUserRepository> adminUserRepository;
 	private final ObjectProvider<AdminUserRoleRepository> adminUserRoleRepository;
+	private final ObjectProvider<RoleRepository> roleRepository;
 	private final ObjectProvider<UserRepository> userRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final JwtTokenService jwtTokenService;
@@ -42,6 +45,7 @@ public class AuthService {
 	public AuthService(
 		ObjectProvider<AdminUserRepository> adminUserRepository,
 		ObjectProvider<AdminUserRoleRepository> adminUserRoleRepository,
+		ObjectProvider<RoleRepository> roleRepository,
 		ObjectProvider<UserRepository> userRepository,
 		PasswordEncoder passwordEncoder,
 		JwtTokenService jwtTokenService,
@@ -49,6 +53,7 @@ public class AuthService {
 	) {
 		this.adminUserRepository = adminUserRepository;
 		this.adminUserRoleRepository = adminUserRoleRepository;
+		this.roleRepository = roleRepository;
 		this.userRepository = userRepository;
 		this.passwordEncoder = passwordEncoder;
 		this.jwtTokenService = jwtTokenService;
@@ -65,6 +70,14 @@ public class AuthService {
 
 	private AdminUserRoleRepository adminUserRoles() {
 		AdminUserRoleRepository repo = adminUserRoleRepository.getIfAvailable();
+		if (repo == null) {
+			throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Auth is not available (database disabled)");
+		}
+		return repo;
+	}
+
+	private RoleRepository roles() {
+		RoleRepository repo = roleRepository.getIfAvailable();
 		if (repo == null) {
 			throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Auth is not available (database disabled)");
 		}
@@ -102,13 +115,14 @@ public class AuthService {
 		AdminUser saved = adminUsers().save(adminUser);
 
 		List<String> roles = List.of("ADMIN");
-		JwtTokenService.IssuedToken token = jwtTokenService.issueAccessToken(saved.getId(), "ADMIN", saved.getUsername(), roles);
+		List<String> permissions = resolvePermissions(roles);
+		JwtTokenService.IssuedToken token = jwtTokenService.issueAccessToken(saved.getId(), "ADMIN", saved.getUsername(), roles, permissions);
 
 		return new AuthResponse(
 			"Bearer",
 			token.token(),
 			token.expiresInSeconds(),
-			new AuthResponse.UserInfo(saved.getId(), "ADMIN", saved.getUsername(), null, roles)
+			new AuthResponse.UserInfo(saved.getId(), "ADMIN", saved.getUsername(), null, roles, permissions)
 		);
 	}
 
@@ -130,12 +144,13 @@ public class AuthService {
 			roles = List.of("ADMIN");
 		}
 
-		JwtTokenService.IssuedToken token = jwtTokenService.issueAccessToken(adminUser.getId(), "ADMIN", adminUser.getUsername(), roles);
+		List<String> permissions = resolvePermissions(roles);
+		JwtTokenService.IssuedToken token = jwtTokenService.issueAccessToken(adminUser.getId(), "ADMIN", adminUser.getUsername(), roles, permissions);
 		return new AuthResponse(
 			"Bearer",
 			token.token(),
 			token.expiresInSeconds(),
-			new AuthResponse.UserInfo(adminUser.getId(), "ADMIN", adminUser.getUsername(), null, roles)
+			new AuthResponse.UserInfo(adminUser.getId(), "ADMIN", adminUser.getUsername(), null, roles, permissions)
 		);
 	}
 
@@ -167,18 +182,20 @@ public class AuthService {
 		User saved = users().save(user);
 
 		List<String> roles = List.of("USER");
+		List<String> permissions = List.of();
 		JwtTokenService.IssuedToken token = jwtTokenService.issueAccessToken(
 			saved.getId(),
 			"USER",
 			saved.getPhone(),
 			roles,
+			permissions,
 			saved.getDeviceId()
 		);
 		return new AuthResponse(
 			"Bearer",
 			token.token(),
 			token.expiresInSeconds(),
-			new AuthResponse.UserInfo(saved.getId(), "USER", null, saved.getPhone(), roles)
+			new AuthResponse.UserInfo(saved.getId(), "USER", null, saved.getPhone(), roles, permissions)
 		);
 	}
 
@@ -231,18 +248,20 @@ public class AuthService {
 		users().save(user);
 
 		List<String> roles = List.of("USER");
+		List<String> permissions = List.of();
 		JwtTokenService.IssuedToken token = jwtTokenService.issueAccessToken(
 			user.getId(),
 			"USER",
 			user.getPhone(),
 			roles,
+			permissions,
 			user.getDeviceId()
 		);
 		return new AuthResponse(
 			"Bearer",
 			token.token(),
 			token.expiresInSeconds(),
-			new AuthResponse.UserInfo(user.getId(), "USER", null, user.getPhone(), roles)
+			new AuthResponse.UserInfo(user.getId(), "USER", null, user.getPhone(), roles, permissions)
 		);
 	}
 
@@ -319,6 +338,35 @@ public class AuthService {
 		// Update PIN
 		user.setTransactionPinHash(passwordEncoder.encode(request.newPin()));
 		users().save(user);
+	}
+
+	private List<String> resolvePermissions(List<String> roleCodes) {
+		if (roleCodes == null || roleCodes.isEmpty()) {
+			return List.of();
+		}
+
+		java.util.LinkedHashSet<String> permissions = new java.util.LinkedHashSet<>();
+		for (String code : roleCodes) {
+			if (code == null || code.isBlank()) {
+				continue;
+			}
+			Role role = roles().findByCode(code.trim()).orElse(null);
+			if (role == null) {
+				continue;
+			}
+			permissions.addAll(parsePermissions(role.getPermissionsJson()));
+		}
+		return List.copyOf(permissions);
+	}
+
+	private List<String> parsePermissions(String value) {
+		if (value == null || value.isBlank()) {
+			return List.of();
+		}
+		return java.util.Arrays.stream(value.split("\\r?\\n"))
+			.map(String::trim)
+			.filter(item -> !item.isBlank())
+			.toList();
 	}
 
 	@Transactional

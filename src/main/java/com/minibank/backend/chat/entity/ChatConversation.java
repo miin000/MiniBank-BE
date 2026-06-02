@@ -54,4 +54,13 @@ public class ChatConversation {
 
 	@Column(name = "ended_at")
 	private Instant endedAt;
+
+	@Column(name = "last_intent", length = 120)
+	private String lastIntent;
+
+	@Column(name = "last_confidence")
+	private Integer lastConfidence;
+
+	@Column(name = "escalated_at")
+	private Instant escalatedAt;
 }

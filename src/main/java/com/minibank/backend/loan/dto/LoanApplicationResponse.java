@@ -7,9 +7,9 @@ public record LoanApplicationResponse(
     Long id,
     String productName,
     BigDecimal requestedAmount,
-    int termMonths,
+    int requestedTermMonths,
     String purpose,
-    String status,        // pending | approved | rejected
-    String priorityTag,  // null hoặc "priority"
+    String status,
+    String priorityTag,
     Instant submittedAt
 ) {}

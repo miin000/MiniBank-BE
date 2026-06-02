@@ -13,7 +13,7 @@ import com.minibank.backend.user.repository.UserRepository;
 
 @RestController
 @RequestMapping("/api/admin/system")
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'Xem dashboard')")
 public class AdminSystemController {
 	private final UserRepository userRepository;
 	private final AccountRepository accountRepository;

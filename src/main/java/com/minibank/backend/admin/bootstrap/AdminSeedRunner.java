@@ -19,6 +19,11 @@ public class AdminSeedRunner implements CommandLineRunner {
 	private static final String DEFAULT_ADMIN_PASSWORD = "123456";
 	private static final String DEFAULT_ADMIN_FULL_NAME = "System Admin";
 	private static final String ADMIN_ROLE_CODE = "ADMIN";
+	private static final String SUPER_ADMIN_ROLE_CODE = "SUPER_ADMIN";
+	private static final String CUSTOMER_SUPPORT_ROLE_CODE = "CUSTOMER_SUPPORT";
+	private static final String KYC_OFFICER_ROLE_CODE = "KYC_OFFICER";
+	private static final String SERVICE_OFFICER_ROLE_CODE = "SERVICE_OFFICER";
+	private static final String LOAN_OFFICER_ROLE_CODE = "LOAN_OFFICER";
 
 	private final AdminUserRepository adminUserRepository;
 	private final RoleRepository roleRepository;
@@ -44,8 +49,13 @@ public class AdminSeedRunner implements CommandLineRunner {
 			.orElseGet(() -> roleRepository.save(Role.builder()
 				.code(ADMIN_ROLE_CODE)
 				.name("Administrator")
-				.description("Full system access")
+				.description("Legacy full system access")
 				.build()));
+		Role superAdminRole = upsertRole(SUPER_ADMIN_ROLE_CODE, "Super Admin", "Quyền cao nhất trên hệ thống MiniBank");
+		upsertRole(CUSTOMER_SUPPORT_ROLE_CODE, "Nhân viên CSKH", "Nhận và xử lý cuộc chat chuyển tiếp từ AI");
+		upsertRole(KYC_OFFICER_ROLE_CODE, "Nhân viên KYC", "Xem, phê duyệt và từ chối hồ sơ KYC");
+		upsertRole(SERVICE_OFFICER_ROLE_CODE, "Nhân viên Thủ tục", "Xử lý yêu cầu dịch vụ, hạn mức và tiết kiệm");
+		upsertRole(LOAN_OFFICER_ROLE_CODE, "Nhân viên Tín dụng", "Thẩm định, duyệt vay và theo dõi khoản vay");
 
 		AdminUser adminUser = adminUserRepository.findByUsernameIgnoreCase(DEFAULT_ADMIN_USERNAME)
 			.orElseGet(() -> adminUserRepository.save(AdminUser.builder()
@@ -62,5 +72,20 @@ public class AdminSeedRunner implements CommandLineRunner {
 				.role(adminRole)
 				.build());
 		}
+		if (!adminUserRoleRepository.existsByAdminUserIdAndRoleId(adminUser.getId(), superAdminRole.getId())) {
+			adminUserRoleRepository.save(AdminUserRole.builder()
+				.adminUser(adminUser)
+				.role(superAdminRole)
+				.build());
+		}
+	}
+
+	private Role upsertRole(String code, String name, String description) {
+		return roleRepository.findByCode(code)
+			.orElseGet(() -> roleRepository.save(Role.builder()
+				.code(code)
+				.name(name)
+				.description(description)
+				.build()));
 	}
 }

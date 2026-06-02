@@ -14,4 +14,7 @@ public interface AdminUserRoleRepository extends JpaRepository<AdminUserRole, Lo
 
 	@Query("select r.code from AdminUserRole aur join aur.role r where aur.adminUser.id = :adminUserId")
 	List<String> findRoleCodesByAdminUserId(@Param("adminUserId") Long adminUserId);
+
+	@Query("select count(aur) from AdminUserRole aur join aur.role r where upper(r.code) = upper(:roleCode)")
+	long countUsersByRoleCode(@Param("roleCode") String roleCode);
 }

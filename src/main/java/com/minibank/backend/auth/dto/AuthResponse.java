@@ -13,6 +13,7 @@ public record AuthResponse(
 		String type,
 		String username,
 		String phone,
-		List<String> roles
+		List<String> roles,
+		List<String> permissions
 	) {}
 }

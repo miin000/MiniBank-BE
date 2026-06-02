@@ -11,6 +11,8 @@ import com.minibank.backend.contract.dto.ContractDetail;
 import com.minibank.backend.contract.dto.ContractGenerateRequest;
 import com.minibank.backend.contract.entity.ContractTemplate;
 import com.minibank.backend.contract.repository.ContractTemplateRepository;
+import com.minibank.backend.loan.entity.LoanApplication;
+import com.minibank.backend.loan.repository.LoanApplicationRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,7 +31,13 @@ import lombok.extern.slf4j.Slf4j;
 public class ContractAutoTriggerService {
 
     private final ContractTemplateRepository templateRepo;
+    private final ContractTemplateService templateService;
     private final ContractService contractService;
+    private final LoanApplicationRepository loanApplicationRepository;
+
+    private static final String CODE_UNSECURED = "LOAN_CREDIT";
+    private static final String CODE_SECURED = "LOAN_MORTGAGE";
+    private static final String CODE_SAVING = "SAVING_AGREEMENT";
 
     // ── Public API ────────────────────────────────────────────────────────────
 
@@ -40,7 +48,8 @@ public class ContractAutoTriggerService {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void triggerForLoan(Long loanApplicationId, AdminUser approvedBy) {
-        generate("loan", "LOAN_APPLICATION", loanApplicationId, approvedBy);
+        ContractTemplate tpl = resolveLoanTemplate(loanApplicationId);
+        generate(tpl, "loan", "LOAN_APPLICATION", loanApplicationId, approvedBy);
     }
 
     /**
@@ -50,21 +59,29 @@ public class ContractAutoTriggerService {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void triggerForSaving(Long savingId, AdminUser approvedBy) {
-        generate("saving", "SAVING", savingId, approvedBy);
+        ContractTemplate tpl = templateRepo.findActiveByCode(CODE_SAVING).orElse(null);
+        generate(tpl, "saving", "SAVING", savingId, approvedBy);
     }
 
     // ── Private ───────────────────────────────────────────────────────────────
 
-    private void generate(String service, String ownerType, Long ownerId, AdminUser admin) {
+    private void generate(ContractTemplate preferred,
+                          String service,
+                          String ownerType,
+                          Long ownerId,
+                          AdminUser admin) {
         try {
             // Tìm mẫu active phù hợp với dịch vụ
-            List<ContractTemplate> templates = templateRepo.findActiveByService(service);
-            if (templates.isEmpty()) {
-                log.warn("[ContractAutoTrigger] Không tìm thấy mẫu active cho service='{}' — bỏ qua", service);
-                return;
+            ContractTemplate tpl = preferred;
+            if (tpl == null) {
+                List<ContractTemplate> templates = templateRepo.findActiveByService(service.toLowerCase());
+                if (templates.isEmpty()) {
+                    log.warn("[ContractAutoTrigger] Không tìm thấy mẫu active cho service='{}' — bỏ qua", service);
+                    return;
+                }
+                // Lấy mẫu ưu tiên nhất (đầu danh sách, mới nhất)
+                tpl = templates.get(0);
             }
-            // Lấy mẫu ưu tiên nhất (đầu danh sách, mới nhất)
-            ContractTemplate tpl = templates.get(0);
 
             ContractGenerateRequest req = new ContractGenerateRequest(
                     tpl.getId(), ownerType, ownerId, null, null // contractNumber tự sinh
@@ -78,5 +95,17 @@ public class ContractAutoTriggerService {
             log.error("[ContractAutoTrigger] Lỗi khi sinh hợp đồng cho {}#{}: {}",
                     ownerType, ownerId, ex.getMessage(), ex);
         }
+    }
+
+    private ContractTemplate resolveLoanTemplate(Long loanApplicationId) {
+        LoanApplication app = loanApplicationRepository.findById(loanApplicationId).orElse(null);
+        String loanType = app != null && app.getLoanProduct() != null
+                ? app.getLoanProduct().getLoanType()
+                : null;
+        String normalized = loanType == null ? "" : loanType.trim().toLowerCase();
+        String code = normalized.contains("secured") || normalized.contains("collateral") || normalized.contains("mortgage")
+                ? CODE_SECURED
+                : CODE_UNSECURED;
+        return templateService.findActiveTemplateByCodeOrAlias(code).orElse(null);
     }
 }

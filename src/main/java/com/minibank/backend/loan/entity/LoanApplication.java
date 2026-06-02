@@ -5,6 +5,7 @@ import java.time.Instant;
 
 import org.hibernate.annotations.CreationTimestamp;
 
+import com.minibank.backend.account.entity.Account;
 import com.minibank.backend.admin.entity.AdminUser;
 import com.minibank.backend.user.entity.User;
 
@@ -76,6 +77,14 @@ public class LoanApplication {
 
 	@Column(name = "reviewed_at")
 	private Instant reviewedAt;
+
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "disbursement_account_id")
+	private Account disbursementAccount;
+
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "repayment_account_id")
+	private Account repaymentAccount;
 
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "reviewed_by_id")

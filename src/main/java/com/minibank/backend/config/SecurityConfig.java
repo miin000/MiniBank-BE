@@ -35,6 +35,7 @@ public class SecurityConfig {
 						.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/admin/auth/login").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/mobile/auth/**").permitAll()
+						.requestMatchers("/ws/**", "/ws").permitAll()
 						.requestMatchers("/api/system-logs/**").permitAll()
 						.anyRequest().authenticated())
 				.oauth2ResourceServer(oauth2 -> oauth2

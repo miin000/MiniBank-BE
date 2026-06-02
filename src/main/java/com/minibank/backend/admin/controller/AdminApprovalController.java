@@ -22,6 +22,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 import com.minibank.backend.admin.entity.AdminUser;
 import com.minibank.backend.admin.repository.AdminUserRepository;
+import com.minibank.backend.approval.dto.ApprovalProgressResponse;
+import com.minibank.backend.approval.service.MultiStepApprovalService;
 import com.minibank.backend.common.security.CurrentJwt;
 import com.minibank.backend.contract.entity.Contract;
 import com.minibank.backend.contract.entity.ContractTemplate;
@@ -36,7 +38,6 @@ import com.minibank.backend.user.repository.DocumentRepository;
 
 @RestController
 @RequestMapping("/api/admin/approvals")
-@PreAuthorize("hasAnyRole('ADMIN', 'STAFF')")
 public class AdminApprovalController {
     private final LoanApplicationRepository loanApplicationRepository;
     private final SavingRepository savingRepository;
@@ -44,6 +45,7 @@ public class AdminApprovalController {
     private final ContractRepository contractRepository;
     private final AdminUserRepository adminUserRepository;
     private final DocumentRepository documentRepository;
+    private final MultiStepApprovalService multiStepApprovalService;
 
     public AdminApprovalController(
         LoanApplicationRepository loanApplicationRepository,
@@ -51,7 +53,8 @@ public class AdminApprovalController {
         ContractTemplateRepository templateRepository,
         ContractRepository contractRepository,
         AdminUserRepository adminUserRepository,
-        DocumentRepository documentRepository
+        DocumentRepository documentRepository,
+        MultiStepApprovalService multiStepApprovalService
     ) {
         this.loanApplicationRepository = loanApplicationRepository;
         this.savingRepository = savingRepository;
@@ -59,20 +62,34 @@ public class AdminApprovalController {
         this.contractRepository = contractRepository;
         this.adminUserRepository = adminUserRepository;
         this.documentRepository = documentRepository;
+        this.multiStepApprovalService = multiStepApprovalService;
     }
 
     @GetMapping("/loan-applications")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'LOAN_APPLICATION_APPROVAL')")
     @Transactional(readOnly = true)
     public List<LoanApprovalSummary> listLoanApplications(
         @RequestParam(defaultValue = "pending") String status
     ) {
-        return loanApplicationRepository.findByStatusOrderBySubmittedAtDesc(status)
-            .stream()
+        java.util.LinkedHashSet<String> statuses = new java.util.LinkedHashSet<>();
+        for (String token : status.split(",")) {
+            String normalized = token.trim();
+            if (!normalized.isBlank()) statuses.add(normalized);
+        }
+
+        if (statuses.isEmpty()) {
+            statuses.add("pending");
+        }
+
+        return statuses.stream()
+            .flatMap(s -> loanApplicationRepository.findByStatusOrderBySubmittedAtDesc(s).stream())
+            .sorted(java.util.Comparator.comparing(LoanApplication::getSubmittedAt).reversed())
             .map(this::toLoanApprovalSummary)
             .toList();
     }
 
     @GetMapping("/loan-applications/{id}")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'LOAN_APPLICATION_APPROVAL')")
     @Transactional(readOnly = true)
     public LoanApprovalSummary getLoanApplication(@PathVariable Long id) {
         LoanApplication app = loanApplicationRepository.findById(id)
@@ -81,6 +98,7 @@ public class AdminApprovalController {
     }
 
     @GetMapping("/savings")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'SAVING_APPROVAL')")
     @Transactional(readOnly = true)
     public List<SavingResponse> listSavings(
         @RequestParam(defaultValue = "pending_otp,pending_approval,pending_contract") String status
@@ -98,6 +116,7 @@ public class AdminApprovalController {
     }
 
     @PostMapping("/loan-applications/{id}/approve")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'LOAN_APPLICATION_APPROVAL')")
     @ResponseStatus(HttpStatus.OK)
     @Transactional
     public LoanApprovalSummary approveLoanApplication(@PathVariable Long id, @RequestBody(required = false) ApproveLoanRequest req) {
@@ -108,36 +127,47 @@ public class AdminApprovalController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Loan application is not pending");
         }
 
-        AdminUser reviewer = requireReviewer();
-        app.setStatus("approved");
-        app.setReviewedAt(Instant.now());
-        app.setReviewedBy(reviewer);
-        app.setReviewNote(null);
-        loanApplicationRepository.save(app);
+        ApprovalProgressResponse progress = multiStepApprovalService.approve(
+            "loan_application",
+            app.getId(),
+            app.getRequestedAmount(),
+            CurrentJwt.requireUserId(),
+            req != null ? req.note : null
+        );
 
-        Contract existing = contractRepository
-            .findByOwnerTypeAndOwnerIdOrderByCreatedAtDesc("loan_application", app.getId())
-            .stream()
-            .findFirst()
-            .orElse(null);
+        if (progress.finalApproved()) {
+            AdminUser reviewer = requireReviewer();
+            app.setStatus("approved");
+            app.setReviewedAt(Instant.now());
+            app.setReviewedBy(reviewer);
+            app.setReviewNote(req != null ? req.note : null);
+            loanApplicationRepository.save(app);
 
-        if (existing == null) {
-            ContractTemplate template = resolveTemplateForLoan(req);
-            Contract contract = Contract.builder()
-                .ownerType("loan_application")
-                .ownerId(app.getId())
-                .template(template)
-                .contractNumber(generateLoanContractNumber())
-                .status("SENT")
-                .createdBy(reviewer)
-                .build();
-            contractRepository.save(contract);
+            Contract existing = contractRepository
+                .findByOwnerTypeAndOwnerIdOrderByCreatedAtDesc("loan_application", app.getId())
+                .stream()
+                .findFirst()
+                .orElse(null);
+
+            if (existing == null) {
+                ContractTemplate template = resolveTemplateForLoan(req);
+                Contract contract = Contract.builder()
+                    .ownerType("loan_application")
+                    .ownerId(app.getId())
+                    .template(template)
+                    .contractNumber(generateLoanContractNumber())
+                    .status("SENT")
+                    .createdBy(reviewer)
+                    .build();
+                contractRepository.save(contract);
+            }
         }
 
         return toLoanApprovalSummary(app);
     }
 
     @PostMapping("/loan-applications/{id}/reject")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'LOAN_APPLICATION_APPROVAL')")
     @ResponseStatus(HttpStatus.OK)
     @Transactional
     public LoanApprovalSummary rejectLoanApplication(@PathVariable Long id, @RequestBody(required = false) RejectLoanRequest req) {
@@ -148,6 +178,13 @@ public class AdminApprovalController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Loan application is not pending");
         }
 
+        multiStepApprovalService.reject(
+            "loan_application",
+            app.getId(),
+            app.getRequestedAmount(),
+            CurrentJwt.requireUserId(),
+            req != null ? req.reason : null
+        );
         app.setStatus("rejected");
         app.setReviewedAt(Instant.now());
         app.setReviewedBy(requireReviewer());
@@ -173,6 +210,11 @@ public class AdminApprovalController {
             app.getUser() != null ? app.getUser().getFullName() : null,
             app.getUser() != null ? app.getUser().getPhone() : null,
             app.getUser() != null ? app.getUser().getEmail() : null,
+            app.getUser() != null ? app.getUser().getDob() : null,
+            app.getUser() != null ? app.getUser().getAddress() : null,
+            app.getUser() != null ? app.getUser().getCitizenId() : null,
+            app.getUser() != null ? app.getUser().getCustomerRank() : null,
+            app.getUser() != null ? app.getUser().getCreditScoreLevel() : null,
             app.getLoanProduct() != null ? app.getLoanProduct().getId() : null,
             app.getLoanProduct() != null ? app.getLoanProduct().getCode() : null,
             app.getLoanProduct() != null ? app.getLoanProduct().getName() : null,
@@ -192,9 +234,11 @@ public class AdminApprovalController {
             app.getSubmittedAt(),
             app.getReviewedAt(),
             app.getReviewNote(),
+            app.getCollateralDescription() != null && !app.getCollateralDescription().isBlank(),
             latestContract != null ? latestContract.getId() : null,
             latestContract != null ? latestContract.getContractNumber() : null,
-            latestContract != null ? latestContract.getStatus() : null
+            latestContract != null ? latestContract.getStatus() : null,
+            multiStepApprovalService.findProgress("loan_application", app.getId())
         );
     }
 
@@ -241,13 +285,35 @@ public class AdminApprovalController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Template not found"));
         }
 
-        return templateRepository.findActiveByService("loan")
+        List<ContractTemplate> activeTemplates = templateRepository.findActiveByService("loan");
+        if (!activeTemplates.isEmpty()) {
+            return activeTemplates.get(0);
+        }
+
+        return templateRepository.findAllByOrderByCreatedAtDesc()
             .stream()
+            .filter(template -> supportsService(template, "loan"))
             .findFirst()
             .orElseThrow(() -> new ResponseStatusException(
                 HttpStatus.BAD_REQUEST,
-                "No active loan contract template configured"
+                "No loan contract template configured"
             ));
+    }
+
+    private boolean supportsService(ContractTemplate template, String service) {
+        if (template == null || template.getServices() == null || service == null) {
+            return false;
+        }
+
+        String normalizedService = service.trim().toLowerCase(Locale.ROOT);
+        for (String token : template.getServices().split(",")) {
+            String normalizedToken = token.trim().toLowerCase(Locale.ROOT);
+            if (normalizedToken.equals(normalizedService) || normalizedToken.equals("general")) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private String generateLoanContractNumber() {
@@ -258,6 +324,7 @@ public class AdminApprovalController {
 
     public static class ApproveLoanRequest {
         public Long templateId;
+        public String note;
     }
 
     public static class RejectLoanRequest {
@@ -270,6 +337,11 @@ public class AdminApprovalController {
         String userFullName,
         String userPhone,
         String userEmail,
+        java.time.LocalDate userDob,
+        String userAddress,
+        String userCitizenId,
+        String customerRank,
+        String creditScoreLevel,
         Long loanProductId,
         String productCode,
         String productName,
@@ -289,8 +361,10 @@ public class AdminApprovalController {
         Instant submittedAt,
         Instant reviewedAt,
         String reviewNote,
+        boolean hasCollateral,
         Long contractId,
         String contractNumber,
-        String contractStatus
+        String contractStatus,
+        ApprovalProgressResponse approvalProgress
     ) {}
 }

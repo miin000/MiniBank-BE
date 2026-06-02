@@ -25,21 +25,12 @@ import com.minibank.backend.admin.repository.RoleRepository;
 public class AdminStaffService {
 	private static final String DEFAULT_ROLE = "CUSTOMER_SUPPORT";
 	private static final Map<String, String> ROLE_NAMES = Map.ofEntries(
-		Map.entry("ADMIN", "Administrator"),
-		Map.entry("CUSTOMER_SUPPORT", "Customer Support"),
-		Map.entry("OPS", "Operations"),
-		Map.entry("TEAM_LEAD", "Team Lead"),
-		Map.entry("DASHBOARD", "Dashboard"),
-		Map.entry("CUSTOMER", "Customer Management"),
-		Map.entry("STAFF", "Staff Management"),
-		Map.entry("STAFF_CREATE", "Staff Create"),
-		Map.entry("PROCEDURE", "Procedure Handling"),
-		Map.entry("LIMIT", "Limit Management"),
-		Map.entry("TRANSACTION", "Transaction Management"),
-		Map.entry("SAVING", "Saving Management"),
-		Map.entry("LOAN", "Loan Management"),
-		Map.entry("CHAT", "Live Chat"),
-		Map.entry("AUDIT", "System Audit")
+		Map.entry("SUPER_ADMIN", "Super Admin"),
+		Map.entry("ADMIN", "Legacy Administrator"),
+		Map.entry("CUSTOMER_SUPPORT", "Nhân viên CSKH"),
+		Map.entry("KYC_OFFICER", "Nhân viên KYC"),
+		Map.entry("SERVICE_OFFICER", "Nhân viên Thủ tục"),
+		Map.entry("LOAN_OFFICER", "Nhân viên Tín dụng")
 	);
 
 	private final AdminUserRepository adminUserRepository;

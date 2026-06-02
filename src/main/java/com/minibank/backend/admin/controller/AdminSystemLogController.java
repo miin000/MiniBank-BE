@@ -21,7 +21,7 @@ import com.minibank.backend.system.repository.SystemLogRepository;
 
 @RestController
 @RequestMapping("/api/admin/system/logs")
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'Xem log hệ thống')")
 public class AdminSystemLogController {
 	private static final int MAX_PAGE_SIZE = 200;
 

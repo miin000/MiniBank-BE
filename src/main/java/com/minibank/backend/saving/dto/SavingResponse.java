@@ -1,7 +1,9 @@
 package com.minibank.backend.saving.dto;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 
+import com.minibank.backend.approval.dto.ApprovalProgressResponse;
 import com.minibank.backend.saving.entity.Saving;
 
 public record SavingResponse(
@@ -19,9 +21,15 @@ public record SavingResponse(
     String sourceAccountName,
     boolean autoRenew,
     String openDate,
-    String maturityDate
+    String maturityDate,
+    Instant createdAt,
+    ApprovalProgressResponse approvalProgress
 ) {
     public static SavingResponse from(Saving s) {
+        return from(s, null);
+    }
+
+    public static SavingResponse from(Saving s, ApprovalProgressResponse approvalProgress) {
         return new SavingResponse(
             s.getId(),
             s.getCode(),
@@ -37,7 +45,9 @@ public record SavingResponse(
             s.getSourceAccount() != null ? s.getSourceAccount().getAccountName() : null,
             s.isAutoRenew(),
             s.getOpenDate() != null ? s.getOpenDate().toString() : null,
-            s.getMaturityDate() != null ? s.getMaturityDate().toString() : null
+            s.getMaturityDate() != null ? s.getMaturityDate().toString() : null,
+            s.getCreatedAt(),
+            approvalProgress
         );
     }
 }

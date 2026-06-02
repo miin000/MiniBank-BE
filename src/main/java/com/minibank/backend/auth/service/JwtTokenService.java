@@ -28,7 +28,7 @@ public class JwtTokenService {
 		this.accessTokenTtlSeconds = accessTokenTtlSeconds;
 	}
 
-	public IssuedToken issueAccessToken(Long userId, String type, String subject, List<String> roles, String deviceId) {
+	public IssuedToken issueAccessToken(Long userId, String type, String subject, List<String> roles, List<String> permissions, String deviceId) {
 		Instant now = Instant.now();
 		Instant expiresAt = now.plusSeconds(accessTokenTtlSeconds);
 
@@ -40,7 +40,8 @@ public class JwtTokenService {
 			.subject(subject)
 			.claim("uid", userId)
 			.claim("type", type)
-			.claim("roles", roles);
+			.claim("roles", roles)
+			.claim("permissions", permissions == null ? List.of() : permissions);
 
 		if (deviceId != null && !deviceId.isBlank()) {
 			builder.claim("deviceId", deviceId);
@@ -53,7 +54,11 @@ public class JwtTokenService {
 	}
 
 	public IssuedToken issueAccessToken(Long userId, String type, String subject, List<String> roles) {
-		return issueAccessToken(userId, type, subject, roles, null);
+		return issueAccessToken(userId, type, subject, roles, List.of(), null);
+	}
+
+	public IssuedToken issueAccessToken(Long userId, String type, String subject, List<String> roles, List<String> permissions) {
+		return issueAccessToken(userId, type, subject, roles, permissions, null);
 	}
 
 	public record IssuedToken(String token, long expiresInSeconds) {}
