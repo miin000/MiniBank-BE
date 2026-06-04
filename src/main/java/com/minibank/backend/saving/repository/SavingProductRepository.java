@@ -11,5 +11,7 @@ import com.minibank.backend.saving.entity.SavingProduct;
 public interface SavingProductRepository extends JpaRepository<SavingProduct, Long> {
 	List<SavingProduct> findByStatusOrderByBaseInterestRateDesc(String status);
 
+	List<SavingProduct> findByStatusIgnoreCaseOrderByBaseInterestRateDesc(String status);
+
 	List<SavingProduct> findAllByOrderByUpdatedAtDesc();
 }

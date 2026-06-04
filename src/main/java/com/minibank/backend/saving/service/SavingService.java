@@ -269,7 +269,7 @@ public class SavingService {
     }
 
     public List<SavingProductResponse> getActiveSavingProducts() {
-        return savingProductRepository.findByStatusOrderByBaseInterestRateDesc("active")
+        return savingProductRepository.findByStatusIgnoreCaseOrderByBaseInterestRateDesc("active")
                 .stream()
                 .map(SavingProductResponse::from)
                 .toList();

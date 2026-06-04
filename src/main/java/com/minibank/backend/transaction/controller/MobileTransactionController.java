@@ -102,7 +102,7 @@ public class MobileTransactionController {
 		long userId = CurrentJwt.requireUserId();
 		int finalLimit = limit == null ? 20 : Math.min(Math.max(limit, 1), 50);
 		Pageable pageable = PageRequest.of(0, finalLimit);
-		List<String> statuses = List.of("pending", "pending_review", "pending_manager");
+		List<String> statuses = List.of("pending_review", "pending_manager");
 		List<Transaction> transactions = transactionRepository.findPendingForUser(userId, statuses, pageable);
 		Map<Long, TransactionCategory> latestCategories = latestCategoryMap(transactions);
 		return transactions.stream()

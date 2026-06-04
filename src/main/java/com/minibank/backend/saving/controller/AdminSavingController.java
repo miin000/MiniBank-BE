@@ -30,6 +30,9 @@ import com.minibank.backend.saving.dto.SavingResponse;
 import com.minibank.backend.saving.entity.Saving;
 import com.minibank.backend.saving.repository.SavingRepository;
 import com.minibank.backend.saving.service.SavingService;
+import com.minibank.backend.saving.service.SavingSettlementRequestService;
+import com.minibank.backend.saving.service.SavingSettlementRequestService.DecisionRequest;
+import com.minibank.backend.saving.service.SavingSettlementRequestService.SettlementRequestItem;
 import com.minibank.backend.user.entity.Document;
 import com.minibank.backend.user.repository.DocumentRepository;
 
@@ -46,6 +49,7 @@ public class AdminSavingController {
     private final DocumentRepository documentRepository;
     private final ContractRepository contractRepository;
     private final MultiStepApprovalService multiStepApprovalService;
+    private final SavingSettlementRequestService savingSettlementRequestService;
 
     @GetMapping
     @Transactional(readOnly = true)
@@ -54,6 +58,38 @@ public class AdminSavingController {
         return items.stream()
             .map(saving -> SavingResponse.from(saving, multiStepApprovalService.findProgress("saving", saving.getId())))
             .toList();
+    }
+
+    @GetMapping("/closure-requests")
+    @Transactional(readOnly = true)
+    public List<SettlementRequestItem> listClosureRequests(
+        @RequestParam(value = "q", required = false) String q,
+        @RequestParam(value = "type", required = false) String type,
+        @RequestParam(value = "status", required = false) String status
+    ) {
+        return savingSettlementRequestService.listForAdmin(q, type, status);
+    }
+
+    @GetMapping("/closure-requests/{requestId}")
+    @Transactional(readOnly = true)
+    public SettlementRequestItem getClosureRequest(@PathVariable long requestId) {
+        return savingSettlementRequestService.getForAdmin(requestId);
+    }
+
+    @PostMapping("/closure-requests/{requestId}/approve")
+    public SettlementRequestItem approveClosureRequest(
+        @PathVariable long requestId,
+        @RequestBody(required = false) DecisionRequest request
+    ) {
+        return savingSettlementRequestService.approve(requestId, CurrentJwt.requireUserId(), request);
+    }
+
+    @PostMapping("/closure-requests/{requestId}/reject")
+    public SettlementRequestItem rejectClosureRequest(
+        @PathVariable long requestId,
+        @RequestBody(required = false) DecisionRequest request
+    ) {
+        return savingSettlementRequestService.reject(requestId, CurrentJwt.requireUserId(), request);
     }
 
     @GetMapping("/{id}")

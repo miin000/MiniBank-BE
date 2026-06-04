@@ -27,6 +27,7 @@ import com.minibank.backend.user.entity.Document;
 import com.minibank.backend.user.entity.User;
 import com.minibank.backend.user.repository.DocumentRepository;
 import com.minibank.backend.user.repository.UserRepository;
+import com.minibank.backend.user.service.CustomerRankService;
 
 import jakarta.validation.Valid;
 
@@ -37,16 +38,18 @@ public class MobileProfileController {
 	private final AccountRepository accountRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final DocumentRepository documentRepository;
+	private final CustomerRankService customerRankService;
 
-	public MobileProfileController(UserRepository userRepository, AccountRepository accountRepository, PasswordEncoder passwordEncoder, DocumentRepository documentRepository) {
+	public MobileProfileController(UserRepository userRepository, AccountRepository accountRepository, PasswordEncoder passwordEncoder, DocumentRepository documentRepository, CustomerRankService customerRankService) {
 		this.userRepository = userRepository;
 		this.accountRepository = accountRepository;
 		this.passwordEncoder = passwordEncoder;
 		this.documentRepository = documentRepository;
+		this.customerRankService = customerRankService;
 	}
 
 	@GetMapping("/me")
-	@Transactional(readOnly = true)
+	@Transactional
 	public ProfileResponse me() {
 		long userId = CurrentJwt.requireUserId();
 		User user = userRepository.findById(userId)
@@ -56,6 +59,7 @@ public class MobileProfileController {
 			.map(a -> new ProfileResponse.AccountSummary(a.getId(), a.getAccountNumber(), a.getAccountName(), a.getStatus()))
 			.toList();
 
+		String customerRank = customerRankService.refreshRank(user);
 		return new ProfileResponse(
 			user.getId(),
 			user.getPhone(),
@@ -64,7 +68,7 @@ public class MobileProfileController {
 			user.getDob(),
 			user.getAddress(),
 			user.getStatus(),
-			user.getCustomerRank(),
+			customerRank,
 			user.getTransactionPinHash() != null && !user.getTransactionPinHash().isBlank(),
 			user.getPublicKey() != null && !user.getPublicKey().isBlank(),
 			user.getDeviceId(),

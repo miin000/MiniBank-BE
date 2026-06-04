@@ -27,6 +27,7 @@ import com.minibank.backend.account.service.AccountQrService;
 import com.minibank.backend.common.security.CurrentJwt;
 import com.minibank.backend.user.entity.User;
 import com.minibank.backend.user.repository.UserRepository;
+import com.minibank.backend.user.service.CustomerRankService;
 
 import jakarta.validation.Valid;
 
@@ -37,17 +38,20 @@ public class MobileAccountController {
 	private final UserRepository userRepository;
 	private final AccountNumberService accountNumberService;
 	private final AccountQrService accountQrService;
+	private final CustomerRankService customerRankService;
 
 	public MobileAccountController(
 		AccountRepository accountRepository,
 		UserRepository userRepository,
 		AccountNumberService accountNumberService,
-		AccountQrService accountQrService
+		AccountQrService accountQrService,
+		CustomerRankService customerRankService
 	) {
 		this.accountRepository = accountRepository;
 		this.userRepository = userRepository;
 		this.accountNumberService = accountNumberService;
 		this.accountQrService = accountQrService;
+		this.customerRankService = customerRankService;
 	}
 
 	@GetMapping("/me")
@@ -60,7 +64,7 @@ public class MobileAccountController {
 	}
 
 	@GetMapping("/summary")
-	@Transactional(readOnly = true)
+	@Transactional
 	public AccountSummaryResponse summary() {
 		long userId = CurrentJwt.requireUserId();
 		User user = userRepository.findById(userId)
@@ -70,13 +74,14 @@ public class MobileAccountController {
 			.findFirst()
 			.orElseThrow(() -> new ResponseStatusException(HttpStatus.PRECONDITION_REQUIRED, "No account is assigned"));
 
+		String customerRank = customerRankService.refreshRank(user);
 		return new AccountSummaryResponse(
 			account.getAccountNumber(),
 			account.getAccountName(),
 			account.getAvailableBalance(),
 			account.getCurrentBalance(),
 			account.getStatus(),
-			user.getCustomerRank()
+			customerRank
 		);
 	}
 

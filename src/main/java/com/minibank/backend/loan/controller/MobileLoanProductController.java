@@ -21,7 +21,7 @@ public class MobileLoanProductController {
 
     @GetMapping
     public List<LoanProductResponse> list(@RequestParam(defaultValue = "active") String status) {
-        return loanProductRepository.findByStatusOrderByBaseInterestRateDesc(status)
+        return loanProductRepository.findByStatusIgnoreCaseOrderByBaseInterestRateDesc(status)
             .stream()
             .map(p -> new LoanProductResponse(
                 p.getId(),

@@ -11,5 +11,7 @@ import com.minibank.backend.loan.entity.LoanProduct;
 public interface LoanProductRepository extends JpaRepository<LoanProduct, Long> {
 	List<LoanProduct> findByStatusOrderByBaseInterestRateDesc(String status);
 
+	List<LoanProduct> findByStatusIgnoreCaseOrderByBaseInterestRateDesc(String status);
+
 	List<LoanProduct> findAllByOrderByUpdatedAtDesc();
 }

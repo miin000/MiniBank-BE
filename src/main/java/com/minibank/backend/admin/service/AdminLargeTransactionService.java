@@ -218,7 +218,7 @@ public class AdminLargeTransactionService {
 	private static List<String> resolveStatuses(String status) {
 		String normalized = normalize(status);
 		if (normalized == null || "all".equals(normalized)) {
-			return List.of("pending", "pending_review", "pending_manager");
+			return List.of("pending_review", "pending_manager");
 		}
 		return List.of(normalized);
 	}
