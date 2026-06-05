@@ -1,6 +1,10 @@
 package com.minibank.backend.contract.service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.UUID;
@@ -10,16 +14,25 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.minibank.backend.account.entity.Account;
+import com.minibank.backend.account.repository.AccountRepository;
+import com.minibank.backend.common.service.StorageService;
 import com.minibank.backend.contract.dto.ContractAcceptRequest;
 import com.minibank.backend.contract.dto.ContractAcceptResult;
 import com.minibank.backend.contract.entity.Contract;
 import com.minibank.backend.contract.entity.ContractTemplate;
 import com.minibank.backend.contract.repository.ContractRepository;
+import com.minibank.backend.loan.entity.Loan;
+import com.minibank.backend.loan.entity.LoanApplication;
+import com.minibank.backend.loan.entity.LoanProduct;
+import com.minibank.backend.loan.entity.LoanRepaymentSchedule;
+import com.minibank.backend.loan.repository.LoanApplicationRepository;
+import com.minibank.backend.loan.repository.LoanRepaymentScheduleRepository;
+import com.minibank.backend.loan.repository.LoanRepository;
 import com.minibank.backend.saving.entity.Saving;
 import com.minibank.backend.saving.repository.SavingRepository;
-import com.minibank.backend.loan.entity.LoanApplication;
-import com.minibank.backend.loan.repository.LoanApplicationRepository;
-import com.minibank.backend.common.service.StorageService;
+import com.minibank.backend.transaction.entity.Transaction;
+import com.minibank.backend.transaction.repository.TransactionRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,6 +57,11 @@ public class MobileContractService {
     private final ContractDataResolver dataResolver;
     private final DocxParserService docxParser;
     private final StorageService storageService;
+
+    private final LoanRepository loanRepository;
+    private final LoanRepaymentScheduleRepository repaymentScheduleRepository;
+    private final AccountRepository accountRepository;
+    private final TransactionRepository transactionRepository;
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ISO_INSTANT;
 
@@ -124,30 +142,41 @@ public class MobileContractService {
      * 4. Upload rendered body lên storage.
      */
     private ContractAcceptResult acceptLoan(Long userId, ContractAcceptRequest req, ContractTemplate tpl) {
-        LoanApplication loan = loanApplicationRepo.findById(req.referenceId())
+        LoanApplication app = loanApplicationRepo.findById(req.referenceId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Không tìm thấy hồ sơ vay #" + req.referenceId()));
 
-        if (!loan.getUser().getId().equals(userId)) {
+        if (!app.getUser().getId().equals(userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Không có quyền ký hợp đồng này");
         }
 
-        // Idempotent: nếu đã có hợp đồng SIGNED cho loan này thì trả về
-        contractRepo.findFirstByOwnerTypeAndOwnerIdAndStatus("loan_application", req.referenceId(), "SIGNED")
-                .ifPresent(existing -> {
-                    throw new AlreadySignedException(existing.getContractNumber(),
-                            existing.getFileUrl(), FMT.format(existing.getSignedAt()));
-                });
+        // Idempotent: nếu đã ký rồi thì vẫn đảm bảo Loan đã được tạo
+        var existingSigned = contractRepo.findFirstByOwnerTypeAndOwnerIdAndStatus(
+                "loan_application",
+                req.referenceId(),
+                "SIGNED"
+        );
+
+        if (existingSigned.isPresent()) {
+            Contract existing = existingSigned.get();
+            ensureLoanCreated(app, existing.getSignedAt() != null ? existing.getSignedAt() : Instant.now());
+
+            return new ContractAcceptResult(
+                    existing.getContractNumber(),
+                    "signed",
+                    existing.getFileUrl(),
+                    FMT.format(existing.getSignedAt() != null ? existing.getSignedAt() : Instant.now())
+            );
+        }
 
         // 1. Resolve + render
         Map<String, String> data = dataResolver.resolveForLoanApplication(req.referenceId());
         String rendered = docxParser.fillTemplate(tpl.getTemplateBody(), data);
 
-        // 2. Số hợp đồng
+        // 2. Tạo hợp đồng
+        Instant now = Instant.now();
         String contractNumber = generateContractNumber(req.templateCode());
 
-        // 3. Tạo entity
-        Instant now = Instant.now();
         Contract contract = Contract.builder()
                 .contractNumber(contractNumber)
                 .template(tpl)
@@ -157,12 +186,16 @@ public class MobileContractService {
                 .status("SIGNED")
                 .signedAt(now)
                 .build();
+
         contractRepo.save(contract);
 
-        // 4. Upload file
+        // 3. Tạo Loan + lịch trả nợ + giải ngân
+        ensureLoanCreated(app, now);
+
+        // 4. Upload file hợp đồng
         String fileUrl = null;
         try {
-            String html = wrapHtml(rendered, contractNumber, loan.getUser().getFullName());
+            String html = wrapHtml(rendered, contractNumber, app.getUser().getFullName());
             fileUrl = storageService.uploadText(html, "contract_" + contract.getId() + ".html", "contracts");
             contract.setFileUrl(fileUrl);
             contractRepo.save(contract);
@@ -171,6 +204,150 @@ public class MobileContractService {
         }
 
         return new ContractAcceptResult(contractNumber, "signed", fileUrl, FMT.format(now));
+    }
+
+    private Loan ensureLoanCreated(LoanApplication app, Instant now) {
+    return loanRepository.findByLoanApplicationId(app.getId())
+            .orElseGet(() -> createLoanFromApplication(app, now));
+    }
+
+    private Loan createLoanFromApplication(LoanApplication app, Instant now) {
+        LoanProduct product = app.getLoanProduct();
+
+        BigDecimal rate = product != null && product.getBaseInterestRate() != null
+                ? product.getBaseInterestRate()
+                : new BigDecimal("0.11");
+
+        LocalDate firstDueDate = LocalDate.now().plusMonths(1);
+        Instant nextDueAt = firstDueDate
+                .atStartOfDay(ZoneId.systemDefault())
+                .toInstant();
+
+        Loan loan = Loan.builder()
+                .code("LN-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase())
+                .loanApplication(app)
+                .user(app.getUser())
+                .loanProduct(product)
+                .approvedAmount(app.getRequestedAmount())
+                .disbursedAmount(app.getRequestedAmount())
+                .interestRateType(product != null ? product.getInterestRateType() : "FIXED")
+                .actualInterestRate(rate)
+                .penaltyInterestRate(product != null ? product.getPenaltyInterestRate() : null)
+                .graceInterestRate(product != null ? product.getGraceInterestRate() : null)
+                .processingFeeRate(product != null ? product.getProcessingFeeRate() : null)
+                .processingFeeFlat(product != null ? product.getProcessingFeeFlat() : null)
+                .earlyRepaymentFeeRate(product != null ? product.getEarlyRepaymentFeeRate() : null)
+                .earlyRepaymentFeeFlat(product != null ? product.getEarlyRepaymentFeeFlat() : null)
+                .interestCalculationMethod(product != null ? product.getInterestCalculationMethod() : "REDUCING_BALANCE")
+                .repaymentFrequency(product != null ? product.getRepaymentFrequency() : "MONTHLY")
+                .termMonths(app.getRequestedTermMonths())
+                .outstandingPrincipal(app.getRequestedAmount())
+                .outstandingInterest(BigDecimal.ZERO)
+                .overduePrincipal(BigDecimal.ZERO)
+                .overdueInterest(BigDecimal.ZERO)
+                .status("active")
+                .disbursementAccount(app.getDisbursementAccount())
+                .repaymentAccount(app.getRepaymentAccount())
+                .disbursedAt(now)
+                .nextDueDate(nextDueAt)
+                .build();
+
+        loan = loanRepository.save(loan);
+
+        createRepaymentSchedule(loan, firstDueDate);
+        disburseLoan(loan);
+
+        app.setStatus("approved");
+        loanApplicationRepo.save(app);
+
+        return loan;
+    }
+
+    private void createRepaymentSchedule(Loan loan, LocalDate firstDueDate) {
+        BigDecimal principal = loan.getApprovedAmount();
+        int months = loan.getTermMonths();
+
+        if (months <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Kỳ hạn vay không hợp lệ");
+        }
+
+        BigDecimal monthlyPrincipal = principal.divide(
+                BigDecimal.valueOf(months),
+                2,
+                RoundingMode.HALF_UP
+        );
+
+        BigDecimal annualRate = normalizeAnnualRateFraction(loan.getActualInterestRate());
+        BigDecimal monthlyRate = annualRate.divide(BigDecimal.valueOf(12), 8, RoundingMode.HALF_UP);
+
+        BigDecimal remaining = principal;
+        LocalDate due = firstDueDate;
+
+        for (int i = 1; i <= months; i++) {
+            BigDecimal interest = remaining.multiply(monthlyRate).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal principalDue = i == months ? remaining : monthlyPrincipal;
+            BigDecimal totalDue = principalDue.add(interest);
+
+            LoanRepaymentSchedule schedule = LoanRepaymentSchedule.builder()
+                    .loan(loan)
+                    .installmentNo(i)
+                    .dueDate(due)
+                    .openingPrincipalBalance(remaining)
+                    .principalDue(principalDue)
+                    .interestRate(loan.getActualInterestRate())
+                    .interestDue(interest)
+                    .penaltyInterestDue(BigDecimal.ZERO)
+                    .feeDue(BigDecimal.ZERO)
+                    .totalDue(totalDue)
+                    .principalPaid(BigDecimal.ZERO)
+                    .interestPaid(BigDecimal.ZERO)
+                    .penaltyInterestPaid(BigDecimal.ZERO)
+                    .feePaid(BigDecimal.ZERO)
+                    .status("unpaid")
+                    .build();
+
+            repaymentScheduleRepository.save(schedule);
+
+            remaining = remaining.subtract(principalDue);
+            due = due.plusMonths(1);
+        }
+    }
+
+    private void disburseLoan(Loan loan) {
+        Account to = loan.getDisbursementAccount();
+
+        if (to != null) {
+            to.setAvailableBalance(to.getAvailableBalance().add(loan.getDisbursedAmount()));
+            to.setCurrentBalance(to.getCurrentBalance().add(loan.getDisbursedAmount()));
+            accountRepository.save(to);
+        }
+
+        Transaction tx = Transaction.builder()
+                .transactionCode("TXN-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase())
+                .transactionType("loan_disbursement")
+                .amount(loan.getDisbursedAmount())
+                .feeAmount(BigDecimal.ZERO)
+                .description("Giải ngân khoản vay " + loan.getCode())
+                .status("completed")
+                .fromAccount(null)
+                .toAccount(to)
+                .initiatedByUser(loan.getUser())
+                .completedAt(Instant.now())
+                .build();
+
+        transactionRepository.save(tx);
+    }
+
+    private BigDecimal normalizeAnnualRateFraction(BigDecimal rate) {
+        if (rate == null) return new BigDecimal("0.11");
+
+        // Nếu DB lưu 11.0000 nghĩa là 11%, đổi về 0.11 để tính lãi.
+        if (rate.compareTo(BigDecimal.ONE) > 0) {
+            return rate.divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
+        }
+
+        // Nếu DB lưu 0.1100 thì giữ nguyên.
+        return rate;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

@@ -1,6 +1,9 @@
 package com.minibank.backend.user.service;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,6 +16,9 @@ import com.minibank.backend.user.repository.UserRepository;
 public class CustomerRankService {
 	private final AccountRepository accountRepository;
 	private final UserRepository userRepository;
+	private final Map<Long, String> rankCache = new ConcurrentHashMap<>();
+	private final Map<Long, Instant> rankCacheTime = new ConcurrentHashMap<>();
+	private static final long CACHE_TTL_SECONDS = 300;
 
 	public CustomerRankService(AccountRepository accountRepository, UserRepository userRepository) {
 		this.accountRepository = accountRepository;
@@ -21,6 +27,12 @@ public class CustomerRankService {
 
 	@Transactional
 	public String refreshRank(User user) {
+		Long userId = user.getId();
+		Instant cachedAt = rankCacheTime.get(userId);
+		if (cachedAt != null && Instant.now().isBefore(cachedAt.plusSeconds(CACHE_TTL_SECONDS))) {
+			String cachedRank = rankCache.get(userId);
+			if (cachedRank != null) return cachedRank;
+		}
 		BigDecimal totalBalance = accountRepository.findByUserIdOrderByIdAsc(user.getId()).stream()
 			.map(account -> account.getCurrentBalance() == null ? BigDecimal.ZERO : account.getCurrentBalance())
 			.reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -32,6 +44,8 @@ public class CustomerRankService {
 			user.setCreditScoreLevel(scoreLevel);
 			userRepository.save(user);
 		}
+		rankCache.put(userId, rank);
+		rankCacheTime.put(userId, Instant.now());
 		return rank;
 	}
 

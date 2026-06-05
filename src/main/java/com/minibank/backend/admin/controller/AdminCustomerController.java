@@ -9,6 +9,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -80,6 +81,45 @@ public class AdminCustomerController {
 		adjustBalance(userId, request.amount().negate(), "cash_out");
 	}
 
+	@PutMapping("/{userId}")
+	@Transactional
+	public UserSummary updateCustomer(@PathVariable Long userId, @RequestBody UpdateCustomerRequest request) {
+		User user = userRepository.findById(userId)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+
+		if (request.fullName() != null) user.setFullName(request.fullName().trim());
+		if (request.phone() != null) user.setPhone(request.phone().trim());
+		if (request.email() != null) user.setEmail(request.email().trim());
+		if (request.citizenId() != null) user.setCitizenId(request.citizenId().trim());
+		if (request.address() != null) user.setAddress(request.address().trim());
+		if (request.customerRank() != null) user.setCustomerRank(request.customerRank().trim());
+		if (request.status() != null) user.setStatus(request.status().trim().toLowerCase());
+
+		User saved = userRepository.save(user);
+		return new UserSummary(saved.getId(), saved.getPhone(), saved.getEmail(), saved.getFullName(), saved.getStatus(), saved.getCustomerRank(), saved.getDeviceId());
+	}
+
+	@PostMapping("/{userId}/lock")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	@Transactional
+	public void lockCustomer(@PathVariable Long userId) {
+		setCustomerStatus(userId, "locked");
+	}
+
+	@PostMapping("/{userId}/unlock")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	@Transactional
+	public void unlockCustomer(@PathVariable Long userId) {
+		setCustomerStatus(userId, "active");
+	}
+
+	private void setCustomerStatus(Long userId, String status) {
+		User user = userRepository.findById(userId)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+		user.setStatus(status);
+		userRepository.save(user);
+	}
+
 	private void adjustBalance(Long userId, BigDecimal delta, String type) {
 		if (delta == null || delta.compareTo(BigDecimal.ZERO) == 0) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "amount must be non-zero");
@@ -123,4 +163,14 @@ public class AdminCustomerController {
 			.balanceAfter(after)
 			.build());
 	}
+
+	public record UpdateCustomerRequest(
+		String fullName,
+		String phone,
+		String email,
+		String citizenId,
+		String address,
+		String customerRank,
+		String status
+	) {}
 }

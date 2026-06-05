@@ -72,24 +72,21 @@ public class MobileTransactionController {
 		java.time.Instant fromInstant = parseInstant(from, "from");
 		java.time.Instant toInstant = parseInstant(to, "to");
 
-		List<Transaction> transactions = transactionRepository.findAllForUser(userId);
+		Pageable pageable = Pageable.unpaged();
+		if (limit != null) {
+			int finalLimit = Math.min(Math.max(limit, 1), 50);
+			int finalPage = page == null ? 0 : Math.max(page, 0);
+			pageable = PageRequest.of(finalPage, finalLimit);
+		}
+		List<Transaction> transactions = transactionRepository.findForUserWithDateFilter(userId, fromInstant, toInstant, pageable);
 		Map<Long, TransactionCategory> latestCategories = latestCategoryMap(transactions);
 
 		java.util.stream.Stream<MobileTransactionSummary> stream = transactions.stream()
 			.filter(this::isMobileVisibleTransaction)
 			.filter(tx -> matchesDirection(tx, userId, dir))
 			.filter(tx -> matchesStatus(tx, statusFilter))
-			.filter(tx -> fromInstant == null || !tx.getCreatedAt().isBefore(fromInstant))
-			.filter(tx -> toInstant == null || !tx.getCreatedAt().isAfter(toInstant))
 			.filter(tx -> matchesQuery(tx, userId, query))
 			.map(tx -> toSummary(tx, userId, latestCategories.get(tx.getId())));
-
-		if (limit != null) {
-			int finalLimit = Math.min(Math.max(limit, 1), 50);
-			int finalPage = page == null ? 0 : Math.max(page, 0);
-			long offset = (long) finalPage * finalLimit;
-			stream = stream.skip(offset).limit(finalLimit);
-		}
 
 		return stream.toList();
 	}

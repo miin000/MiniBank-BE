@@ -5,6 +5,7 @@ import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import com.minibank.backend.support.entity.ServiceRequest;
@@ -20,4 +21,7 @@ public interface ServiceRequestRepository extends JpaRepository<ServiceRequest, 
 
 	@EntityGraph(attributePaths = {"user", "assignedTo"})
 	List<ServiceRequest> findByRequestTypeAndUserIdOrderBySubmittedAtDesc(String requestType, long userId);
+
+	@Query("select count(r) from ServiceRequest r where lower(r.status) = 'submitted'")
+	long countByStatusSubmitted();
 }

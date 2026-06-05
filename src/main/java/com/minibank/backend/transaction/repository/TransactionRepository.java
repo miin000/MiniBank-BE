@@ -1,5 +1,7 @@
 package com.minibank.backend.transaction.repository;
 
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -34,6 +36,25 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
 		left join fetch fromAccount.user fromUser
 		left join fetch t.toAccount toAccount
 		left join fetch toAccount.user toUser
+		where (fromUser.id = :userId or toUser.id = :userId)
+		  and (coalesce(:fromTime, t.createdAt) = t.createdAt or t.createdAt >= :fromTime)
+		  and (coalesce(:toTime, t.createdAt) = t.createdAt or t.createdAt <= :toTime)
+		order by t.createdAt desc
+	""")
+	List<Transaction> findForUserWithDateFilter(
+		@Param("userId") Long userId,
+		@Param("fromTime") Instant fromTime,
+		@Param("toTime") Instant toTime,
+		Pageable pageable
+	);
+
+	@Query("""
+		select t
+		from Transaction t
+		left join fetch t.fromAccount fromAccount
+		left join fetch fromAccount.user fromUser
+		left join fetch t.toAccount toAccount
+		left join fetch toAccount.user toUser
 		where t.id = :transactionId
 		  and (fromUser.id = :userId or toUser.id = :userId)
 	""")
@@ -59,6 +80,24 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
 		order by t.createdAt desc
 	""")
 	List<Transaction> findAllWithAccounts();
+
+	@Query("""
+		select t
+		from Transaction t
+		left join fetch t.fromAccount fromAccount
+		left join fetch fromAccount.user fromUser
+		left join fetch t.toAccount toAccount
+		left join fetch toAccount.user toUser
+		where t.createdAt >= :from
+		order by t.createdAt desc
+	""")
+	List<Transaction> findAllWithAccountsSince(@Param("from") Instant from);
+
+	@Query("select count(t) from Transaction t where t.status in :statuses and t.amount >= :minAmount")
+	long countByStatusInAndAmountGreaterThanEqual(
+		@Param("statuses") List<String> statuses,
+		@Param("minAmount") BigDecimal minAmount
+	);
 
 	@Query("select t from Transaction t "
 		+ "join fetch t.fromAccount fa "

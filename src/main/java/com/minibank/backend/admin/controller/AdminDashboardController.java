@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.stream.IntStream;
 
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -19,10 +20,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.minibank.backend.account.repository.AccountRepository;
 import com.minibank.backend.admin.dto.AdminDashboardResponse;
-import com.minibank.backend.loan.entity.Loan;
 import com.minibank.backend.loan.repository.LoanApplicationRepository;
 import com.minibank.backend.loan.repository.LoanRepository;
-import com.minibank.backend.saving.entity.Saving;
 import com.minibank.backend.saving.repository.SavingRepository;
 import com.minibank.backend.support.repository.ServiceRequestRepository;
 import com.minibank.backend.transaction.entity.Transaction;
@@ -42,6 +41,7 @@ public class AdminDashboardController {
 	private final LoanRepository loanRepository;
 	private final LoanApplicationRepository loanApplicationRepository;
 	private final ServiceRequestRepository serviceRequestRepository;
+	private final BigDecimal largeThreshold;
 
 	public AdminDashboardController(
 		UserRepository userRepository,
@@ -51,7 +51,8 @@ public class AdminDashboardController {
 		SavingRepository savingRepository,
 		LoanRepository loanRepository,
 		LoanApplicationRepository loanApplicationRepository,
-		ServiceRequestRepository serviceRequestRepository
+		ServiceRequestRepository serviceRequestRepository,
+		@Value("${app.transaction.large-threshold:100000000}") BigDecimal largeThreshold
 	) {
 		this.userRepository = userRepository;
 		this.kycRequestRepository = kycRequestRepository;
@@ -61,6 +62,7 @@ public class AdminDashboardController {
 		this.loanRepository = loanRepository;
 		this.loanApplicationRepository = loanApplicationRepository;
 		this.serviceRequestRepository = serviceRequestRepository;
+		this.largeThreshold = largeThreshold;
 	}
 
 	@GetMapping
@@ -70,30 +72,29 @@ public class AdminDashboardController {
 		ZoneId zone = ZoneId.systemDefault();
 		Instant todayStart = LocalDate.now(zone).atStartOfDay(zone).toInstant();
 		Instant yesterdayStart = todayStart.minus(1, ChronoUnit.DAYS);
+		Instant twoDaysAgo = todayStart.minus(2, ChronoUnit.DAYS);
 
-		List<Transaction> allTransactions = transactionRepository.findAllWithAccounts().stream()
+		List<Transaction> todayTransactions = transactionRepository.findAllWithAccountsSince(todayStart).stream()
 			.filter(this::isVisibleTransaction)
 			.toList();
-		List<Transaction> todayTransactions = allTransactions.stream()
-			.filter(tx -> tx.getCreatedAt() != null && !tx.getCreatedAt().isBefore(todayStart))
-			.toList();
-		List<Transaction> yesterdayTransactions = allTransactions.stream()
+		List<Transaction> yesterdayTransactions = transactionRepository.findAllWithAccountsSince(twoDaysAgo).stream()
+			.filter(this::isVisibleTransaction)
 			.filter(tx -> tx.getCreatedAt() != null && !tx.getCreatedAt().isBefore(yesterdayStart) && tx.getCreatedAt().isBefore(todayStart))
 			.toList();
 
 		long pendingKyc = kycRequestRepository.findByStatusOrderBySubmittedAtDesc("pending").size();
-		long activeAccounts = accountRepository.findAll().stream().filter(acc -> "active".equalsIgnoreCase(acc.getStatus())).count();
-		List<Saving> savings = savingRepository.findAll();
-		List<Loan> loans = loanRepository.findAll();
-		long activeSavings = savings.stream().filter(item -> "active".equalsIgnoreCase(item.getStatus())).count();
-		long activeLoans = loans.stream().filter(item -> "active".equalsIgnoreCase(item.getStatus())).count();
+		long activeAccounts = accountRepository.countByStatusActive();
+		long activeSavings = savingRepository.countByStatusActive();
+		long activeLoans = loanRepository.countByStatusActive();
 		long pendingLoanApplications = loanApplicationRepository.findByStatusOrderBySubmittedAtDesc("pending").size();
-		long submittedServiceRequests = serviceRequestRepository.findAll().stream()
-			.filter(req -> "submitted".equalsIgnoreCase(req.getStatus()))
-			.count();
-		long pendingLarge = allTransactions.stream()
-			.filter(tx -> "pending_review".equalsIgnoreCase(tx.getStatus()) || "pending_manager".equalsIgnoreCase(tx.getStatus()))
-			.count();
+		long submittedServiceRequests = serviceRequestRepository.countByStatusSubmitted();
+		long pendingLarge = transactionRepository.countByStatusInAndAmountGreaterThanEqual(
+			List.of("pending_review", "pending_manager"),
+			largeThreshold
+		);
+		Instant threshold = Instant.now().plus(7, ChronoUnit.DAYS);
+		long dueSoonSavingsCount = savingRepository.countDueSoon(threshold);
+		long dueSoonLoansCount = loanRepository.countDueSoon(threshold);
 
 		BigDecimal todayAmount = sumCompletedAmount(todayTransactions);
 		BigDecimal yesterdayAmount = sumCompletedAmount(yesterdayTransactions);
@@ -106,16 +107,16 @@ public class AdminDashboardController {
 				metric("activeAccounts", "Tai khoan dang hoat dong", activeAccounts, "number", null, "green", "/transactions/bank-accounts"),
 				metric("todayTransactions", "GD trong ngay", todayTransactions.size(), "number", compareCount(todayTransactions.size(), yesterdayTransactions.size()), "indigo", "/transactions/list"),
 				metric("todayAmount", "Tong tien GD hom nay", todayAmount, "money", compareAmount(todayAmount, yesterdayAmount), "emerald", "/transactions/list"),
-				metric("activeSavings", "So TK dang mo", activeSavings, "number", dueSoonSavings(savings) + " sap doi han", "purple", "/financial-products/savings/accounts"),
-				metric("activeLoans", "Khoan vay dang hoat dong", activeLoans, "number", dueSoonLoans(loans) + " sap den han", "orange", "/financial-products/loans/contracts"),
+				metric("activeSavings", "So TK dang mo", activeSavings, "number", dueSoonSavingsCount + " sap doi han", "purple", "/financial-products/savings/accounts"),
+				metric("activeLoans", "Khoan vay dang hoat dong", activeLoans, "number", dueSoonLoansCount + " sap den han", "orange", "/financial-products/loans/contracts"),
 				metric("pendingLoanApplications", "Ho so vay cho duyet", pendingLoanApplications, "number", "Can xu ly", "rose", "/financial-products/loans/applications"),
 				metric("serviceRequests", "Yeu cau tu ho tro", submittedServiceRequests, "number", "Can xu ly", "teal", "/requests"),
 				metric("largePending", "GD lon cho duyet", pendingLarge, "number", "Can xu ly", "cyan", "/transactions/large-approval")
 			),
 			buildCountSeries(todayTransactions, zone),
 			buildAmountSeries(todayTransactions, zone),
-			buildProductPerformance(savings, loans, allTransactions),
-			recentTransactions(allTransactions),
+			buildProductPerformance(todayTransactions),
+			recentTransactions(todayTransactions),
 			List.of(
 				new AdminDashboardResponse.RequestMetric("KYC", pendingKyc, "/customers/kyc"),
 				new AdminDashboardResponse.RequestMetric("Ho so vay", pendingLoanApplications, "/financial-products/loans/applications"),
@@ -156,16 +157,10 @@ public class AdminDashboardController {
 			.toList();
 	}
 
-	private List<AdminDashboardResponse.ProductMetric> buildProductPerformance(List<Saving> savings, List<Loan> loans, List<Transaction> transactions) {
-		BigDecimal savingPrincipal = savings.stream()
-			.filter(saving -> "active".equalsIgnoreCase(saving.getStatus()))
-			.map(Saving::getPrincipalAmount)
-			.reduce(BigDecimal.ZERO, BigDecimal::add)
+	private List<AdminDashboardResponse.ProductMetric> buildProductPerformance(List<Transaction> transactions) {
+		BigDecimal savingPrincipal = nullToZero(savingRepository.sumPrincipalByStatusActive())
 			.divide(BigDecimal.valueOf(1_000_000_000), 2, RoundingMode.HALF_UP);
-		BigDecimal loanOutstanding = loans.stream()
-			.filter(loan -> "active".equalsIgnoreCase(loan.getStatus()))
-			.map(loan -> nullToZero(loan.getOutstandingPrincipal()).add(nullToZero(loan.getOutstandingInterest())))
-			.reduce(BigDecimal.ZERO, BigDecimal::add)
+		BigDecimal loanOutstanding = nullToZero(loanRepository.sumOutstandingByStatusActive())
 			.divide(BigDecimal.valueOf(1_000_000_000), 2, RoundingMode.HALF_UP);
 		BigDecimal transferVolume = transactions.stream()
 			.filter(tx -> "completed".equalsIgnoreCase(tx.getStatus()))
@@ -221,22 +216,6 @@ public class AdminDashboardController {
 			.multiply(BigDecimal.valueOf(100))
 			.divide(previous, 1, RoundingMode.HALF_UP);
 		return (pct.signum() >= 0 ? "+" : "") + pct + "% so voi hom qua";
-	}
-
-	private long dueSoonSavings(List<Saving> savings) {
-		Instant threshold = Instant.now().plus(7, ChronoUnit.DAYS);
-		return savings.stream()
-			.filter(item -> "active".equalsIgnoreCase(item.getStatus()))
-			.filter(item -> item.getMaturityDate() != null && !item.getMaturityDate().isAfter(threshold))
-			.count();
-	}
-
-	private long dueSoonLoans(List<Loan> loans) {
-		Instant threshold = Instant.now().plus(7, ChronoUnit.DAYS);
-		return loans.stream()
-			.filter(item -> "active".equalsIgnoreCase(item.getStatus()))
-			.filter(item -> item.getNextDueDate() != null && !item.getNextDueDate().isAfter(threshold))
-			.count();
 	}
 
 	private boolean isVisibleTransaction(Transaction tx) {

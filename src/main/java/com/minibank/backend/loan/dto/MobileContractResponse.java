@@ -6,8 +6,10 @@ public record MobileContractResponse(
     Long id,
     String ownerType,
     Long ownerId,
-    String contractCode,
+    String contractNumber,
     String status,
     Instant signedAt,
-    Instant createdAt
+    Instant createdAt,
+    String fileUrl,
+    String renderedBody
 ) {}

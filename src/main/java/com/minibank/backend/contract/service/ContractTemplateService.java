@@ -122,6 +122,9 @@ public class ContractTemplateService {
         if (req.templateFileUrl() != null) t.setTemplateFileUrl(req.templateFileUrl());
         t.setUpdatedBy(admin);
 
+		// Remove existing children before re-adding to avoid unique conflicts on field_code.
+		t.syncPlaceholders(List.of());
+		templateRepo.flush();
         buildPlaceholders(t, req, 0);
         return toDetail(templateRepo.save(t));
     }

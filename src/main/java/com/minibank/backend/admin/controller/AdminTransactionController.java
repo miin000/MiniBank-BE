@@ -13,6 +13,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -23,6 +25,9 @@ import com.minibank.backend.admin.dto.AdminTransactionClassificationResponse;
 import com.minibank.backend.admin.dto.AdminTransactionOverview;
 import com.minibank.backend.admin.dto.AdminTransactionSummary;
 import com.minibank.backend.transaction.entity.Transaction;
+import com.minibank.backend.account.entity.Account;
+import com.minibank.backend.account.entity.AccountBalanceLedger;
+import com.minibank.backend.account.repository.AccountBalanceLedgerRepository;
 import com.minibank.backend.transaction.entity.TransactionCategory;
 import com.minibank.backend.transaction.repository.TransactionCategoryRepository;
 import com.minibank.backend.transaction.repository.TransactionRepository;
@@ -33,17 +38,20 @@ import com.minibank.backend.transaction.repository.TransactionRepository;
 public class AdminTransactionController {
 	private final TransactionRepository transactionRepository;
 	private final TransactionCategoryRepository transactionCategoryRepository;
+	private final AccountBalanceLedgerRepository ledgerRepository;
 	private final BigDecimal pendingThreshold;
 	private final BigDecimal highRiskThreshold;
 
 	public AdminTransactionController(
 		TransactionRepository transactionRepository,
 		TransactionCategoryRepository transactionCategoryRepository,
+		AccountBalanceLedgerRepository ledgerRepository,
 		@Value("${app.transactions.pending-approval-threshold:100000000}") BigDecimal pendingThreshold,
 		@Value("${app.transactions.high-risk-threshold:200000000}") BigDecimal highRiskThreshold
 	) {
 		this.transactionRepository = transactionRepository;
 		this.transactionCategoryRepository = transactionCategoryRepository;
+		this.ledgerRepository = ledgerRepository;
 		this.pendingThreshold = pendingThreshold;
 		this.highRiskThreshold = highRiskThreshold;
 	}
@@ -88,6 +96,56 @@ public class AdminTransactionController {
 			.map(Transaction::getAmount)
 			.reduce(BigDecimal.ZERO, BigDecimal::add);
 		return new AdminTransactionOverview(total, completed, totalAmount);
+	}
+
+	@PostMapping("/{id}/refund")
+	@Transactional
+	public AdminTransactionSummary refund(@PathVariable Long id) {
+		Transaction original = transactionRepository.findById(id)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Transaction not found"));
+		if (!"completed".equalsIgnoreCase(original.getStatus())) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only completed transactions can be refunded");
+		}
+		if ("refunded".equalsIgnoreCase(original.getStatus()) || "refund".equalsIgnoreCase(original.getTransactionType())) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Transaction already refunded");
+		}
+		Account from = original.getFromAccount();
+		Account to = original.getToAccount();
+		if (from == null || to == null) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cash/system transactions cannot be refunded automatically");
+		}
+		BigDecimal amount = original.getAmount();
+		if (to.getAvailableBalance().compareTo(amount) < 0) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Destination account has insufficient balance for refund");
+		}
+
+		BigDecimal toBefore = to.getAvailableBalance();
+		BigDecimal fromBefore = from.getAvailableBalance();
+		to.setAvailableBalance(toBefore.subtract(amount));
+		to.setCurrentBalance(to.getCurrentBalance().subtract(amount));
+		from.setAvailableBalance(fromBefore.add(amount));
+		from.setCurrentBalance(from.getCurrentBalance().add(amount));
+		original.setStatus("refunded");
+		original.setCompletedAt(Instant.now());
+
+		Transaction refund = Transaction.builder()
+			.transactionCode("REFUND_" + original.getId() + "_" + System.currentTimeMillis())
+			.fromAccount(to)
+			.toAccount(from)
+			.transactionType("refund")
+			.amount(amount)
+			.feeAmount(BigDecimal.ZERO)
+			.description("Refund for transaction " + original.getTransactionCode())
+			.status("completed")
+			.initiatedByUser(original.getInitiatedByUser())
+			.completedAt(Instant.now())
+			.build();
+		transactionRepository.save(original);
+		Transaction savedRefund = transactionRepository.save(refund);
+
+		ledgerRepository.save(AccountBalanceLedger.builder().account(to).transaction(savedRefund).entryType("debit").amount(amount).balanceBefore(toBefore).balanceAfter(to.getAvailableBalance()).build());
+		ledgerRepository.save(AccountBalanceLedger.builder().account(from).transaction(savedRefund).entryType("credit").amount(amount).balanceBefore(fromBefore).balanceAfter(from.getAvailableBalance()).build());
+		return toSummary(savedRefund);
 	}
 
 	@GetMapping("/classifications")

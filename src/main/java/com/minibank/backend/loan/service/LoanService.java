@@ -15,8 +15,10 @@ import com.minibank.backend.loan.dto.LoanResponse;
 import com.minibank.backend.loan.entity.Loan;
 import com.minibank.backend.loan.entity.LoanApplication;
 import com.minibank.backend.loan.entity.LoanProduct;
+import com.minibank.backend.loan.entity.LoanRepaymentSchedule;
 import com.minibank.backend.loan.repository.LoanApplicationRepository;
 import com.minibank.backend.loan.repository.LoanProductRepository;
+import com.minibank.backend.loan.repository.LoanRepaymentScheduleRepository;
 import com.minibank.backend.loan.repository.LoanRepository;
 import com.minibank.backend.user.entity.User;
 import com.minibank.backend.user.repository.UserRepository;
@@ -27,6 +29,7 @@ public class LoanService {
     private final LoanRepository loanRepository;
     private final LoanApplicationRepository loanApplicationRepository;
     private final LoanProductRepository loanProductRepository;
+    private final LoanRepaymentScheduleRepository loanRepaymentScheduleRepository;
     private final AccountRepository accountRepository;
     private final UserRepository userRepository;
 
@@ -34,12 +37,14 @@ public class LoanService {
         LoanRepository loanRepository,
         LoanApplicationRepository loanApplicationRepository,
         LoanProductRepository loanProductRepository,
+        LoanRepaymentScheduleRepository loanRepaymentScheduleRepository,
         AccountRepository accountRepository,
         UserRepository userRepository
     ) {
         this.loanRepository = loanRepository;
         this.loanApplicationRepository = loanApplicationRepository;
         this.loanProductRepository = loanProductRepository;
+        this.loanRepaymentScheduleRepository = loanRepaymentScheduleRepository;
         this.accountRepository = accountRepository;
         this.userRepository = userRepository;
     }
@@ -87,6 +92,21 @@ public class LoanService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                 "Term must be between " + product.getMinTermMonths()
                 + " and " + product.getMaxTermMonths() + " months");
+        }
+
+        String requestedType = req.loanType();
+
+        if (requestedType != null && !requestedType.isBlank()) {
+            String expectedProductType = "secured".equalsIgnoreCase(requestedType)
+                    ? "MORTGAGE"
+                    : "PERSONAL";
+
+            if (!expectedProductType.equalsIgnoreCase(product.getLoanType())) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Loại vay không khớp với sản phẩm vay đã chọn"
+                );
+            }
         }
 
         // Verify tài khoản giải ngân/hoàn trả thuộc về user
@@ -145,19 +165,56 @@ public class LoanService {
     }
 
     private LoanResponse toLoanResponse(Loan loan) {
+        List<LoanResponse.RepaymentScheduleItem> schedule = loanRepaymentScheduleRepository
+            .findByLoanIdOrderByInstallmentNo(loan.getId())
+            .stream()
+            .map(this::toScheduleItem)
+            .toList();
+
         return new LoanResponse(
             loan.getId(),
+            loan.getLoanApplication() != null ? loan.getLoanApplication().getId() : null,
+            loan.getUser() != null ? loan.getUser().getId() : null,
+            loan.getLoanProduct() != null ? loan.getLoanProduct().getId() : null,
+            loan.getDisbursementAccount() != null ? loan.getDisbursementAccount().getId() : null,
+            loan.getRepaymentAccount() != null ? loan.getRepaymentAccount().getId() : null,
             loan.getCode(),
             loan.getApprovedAmount(),
             loan.getDisbursedAmount(),
+            loan.getActualInterestRate(),
+            loan.getInterestCalculationMethod(),
             loan.getOutstandingPrincipal(),
             loan.getOutstandingInterest(),
+            loan.getOverduePrincipal(),
+            loan.getOverdueInterest(),
             loan.getStatus(),
             loan.getRepaymentFrequency(),
             loan.getTermMonths(),
+            loan.getDisbursedAt(),
             loan.getNextDueDate(),
             loan.getClosedAt(),
-            loan.getCreatedAt()
+            loan.getCreatedAt(),
+            schedule
+        );
+    }
+
+    private LoanResponse.RepaymentScheduleItem toScheduleItem(LoanRepaymentSchedule item) {
+        return new LoanResponse.RepaymentScheduleItem(
+            item.getId(),
+            item.getLoan() != null ? item.getLoan().getId() : null,
+            item.getInstallmentNo(),
+            item.getDueDate(),
+            item.getOpeningPrincipalBalance(),
+            item.getPrincipalDue(),
+            item.getInterestRate(),
+            item.getInterestDue(),
+            item.getPenaltyInterestDue(),
+            item.getFeeDue(),
+            item.getTotalDue(),
+            item.getPrincipalPaid(),
+            item.getInterestPaid(),
+            item.getStatus(),
+            item.getPaidAt()
         );
     }
 
