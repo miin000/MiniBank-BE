@@ -20,10 +20,10 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
 
 	@Query(
 		"select d from Document d " +
-		"where (:ownerType is null or d.ownerType = :ownerType) " +
+		"where (:ownerType is null or lower(d.ownerType) = :ownerType) " +
 		"and (:ownerId is null or d.ownerId = :ownerId) " +
-		"and (:status is null or lower(d.verifiedStatus) = lower(:status)) " +
-		"and (:documentType is null or lower(d.documentType) = lower(:documentType)) " +
+		"and (:status is null or lower(d.verifiedStatus) = :status) " +
+		"and (:documentType is null or lower(d.documentType) = :documentType) " +
 		"order by d.uploadedAt desc"
 	)
 	Page<Document> search(
