@@ -11,5 +11,6 @@ public record ExpenseOverviewResponse(
 	long selectedFlowTransactionCount,
 	long unclassifiedTransactionCount,
 	List<ExpenseCategorySummaryResponse> categories,
-	List<ExpenseUnclassifiedTransactionResponse> unclassifiedTransactions
+	List<ExpenseUnclassifiedTransactionResponse> unclassifiedTransactions,
+	List<ExpenseMonthlyTrendResponse> monthlyTrend
 ) {}

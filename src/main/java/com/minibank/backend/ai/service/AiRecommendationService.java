@@ -69,7 +69,12 @@ public class AiRecommendationService {
 		}
 		LocalDate today = LocalDate.now(ZoneOffset.UTC);
 		return dailyRepository.findFirstByUserIdAndDay(userId, today)
-			.map(this::toResponse)
+			.map(existing -> {
+				AiFinanceRecommendationResponse response = toResponse(existing);
+				return response.recommendations() == null || response.recommendations().isEmpty()
+					? fallbackResponse(userId, YearMonth.now(ZoneOffset.UTC).toString())
+					: response;
+			})
 			.orElseGet(() -> buildAndSave(userId, today));
 	}
 
@@ -215,14 +220,120 @@ public class AiRecommendationService {
 	}
 
 	private AiFinanceRecommendationResponse fallbackResponse(long userId, String month) {
+		FinanceSummary summary = buildSummary(userId, YearMonth.now(ZoneOffset.UTC));
+		BigDecimal disposable = summary.income().subtract(summary.expense());
+		int savingScore = calculateSavingScore(summary.income(), summary.expense());
+		String riskLevel = riskLevel(summary.income(), summary.expense(), summary.availableBalance());
+		List<AiFinanceRecommendationItem> items = buildRuleBasedRecommendations(summary, disposable, riskLevel);
+
 		return new AiFinanceRecommendationResponse(
 			userId,
 			month,
-			"LOW",
-			0,
-			List.of(),
+			riskLevel,
+			savingScore,
+			items,
 			"RULE_BASED"
 		);
+	}
+
+	private List<AiFinanceRecommendationItem> buildRuleBasedRecommendations(
+		FinanceSummary summary,
+		BigDecimal disposable,
+		String riskLevel
+	) {
+		List<AiFinanceRecommendationItem> items = new java.util.ArrayList<>();
+		BigDecimal income = summary.income();
+		BigDecimal expense = summary.expense();
+
+		if (expense.compareTo(BigDecimal.ZERO) <= 0) {
+			items.add(new AiFinanceRecommendationItem(
+				"START_TRACKING",
+				"Bắt đầu theo dõi chi tiêu",
+				"Bạn chưa có dữ liệu chi tiêu trong tháng này. Hãy phân loại giao dịch để MiniBank đưa ra gợi ý chính xác hơn.",
+				"LOW"
+			));
+			return items;
+		}
+
+		if (income.compareTo(BigDecimal.ZERO) > 0 && expense.compareTo(income.multiply(new BigDecimal("0.80"))) >= 0) {
+			items.add(new AiFinanceRecommendationItem(
+				"HIGH_SPENDING",
+				"Giảm tốc độ chi tiêu",
+				"Chi tiêu tháng này đã chiếm phần lớn thu nhập. Bạn nên rà soát các khoản không thiết yếu và đặt hạn mức cho phần còn lại của tháng.",
+				"HIGH"
+			));
+		} else if (income.compareTo(BigDecimal.ZERO) > 0 && expense.compareTo(income.multiply(new BigDecimal("0.60"))) >= 0) {
+			items.add(new AiFinanceRecommendationItem(
+				"WATCH_BUDGET",
+				"Theo dõi ngân sách sát hơn",
+				"Chi tiêu đang ở mức trung bình-cao so với thu nhập. Hãy ưu tiên các khoản cần thiết và hạn chế mua sắm phát sinh.",
+				"MEDIUM"
+			));
+		}
+
+		summary.categorySummary().stream().findFirst().ifPresent(top -> {
+			String priority = top.percentage().compareTo(new BigDecimal("40")) >= 0 ? "MEDIUM" : "LOW";
+			items.add(new AiFinanceRecommendationItem(
+				"TOP_CATEGORY",
+				"Danh mục nổi bật: " + top.category(),
+				"Danh mục này chiếm khoảng " + top.percentage().setScale(0, RoundingMode.HALF_UP) + "% tổng chi. Hãy kiểm tra xem có khoản nào có thể cắt giảm không.",
+				priority
+			));
+		});
+
+		if (disposable.compareTo(BigDecimal.ZERO) > 0) {
+			items.add(new AiFinanceRecommendationItem(
+				"SAVE_SURPLUS",
+				"Tăng khoản tiết kiệm",
+				"Bạn đang còn dư sau chi tiêu. Cân nhắc chuyển một phần sang tài khoản tiết kiệm để tạo quỹ dự phòng.",
+				"LOW"
+			));
+		} else if (!"LOW".equals(riskLevel)) {
+			items.add(new AiFinanceRecommendationItem(
+				"NEGATIVE_CASHFLOW",
+				"Cân đối lại dòng tiền",
+				"Chi tiêu đang vượt hoặc gần vượt thu nhập. Hãy tạm hoãn các khoản chưa cần thiết và ưu tiên thanh toán bắt buộc.",
+				"HIGH"
+			));
+		}
+
+		if (items.isEmpty()) {
+			items.add(new AiFinanceRecommendationItem(
+				"GOOD_CONTROL",
+				"Chi tiêu đang được kiểm soát",
+				"Tỷ lệ chi tiêu hiện khá an toàn. Tiếp tục duy trì thói quen phân loại giao dịch và tiết kiệm định kỳ.",
+				"LOW"
+			));
+		}
+		return items.stream().limit(3).toList();
+	}
+
+	private int calculateSavingScore(BigDecimal income, BigDecimal expense) {
+		if (income.compareTo(BigDecimal.ZERO) <= 0) {
+			return expense.compareTo(BigDecimal.ZERO) <= 0 ? 50 : 20;
+		}
+		BigDecimal ratio = expense.divide(income, 4, RoundingMode.HALF_UP);
+		int score = BigDecimal.ONE.subtract(ratio).multiply(new BigDecimal("100")).intValue();
+		return Math.max(0, Math.min(100, score));
+	}
+
+	private String riskLevel(BigDecimal income, BigDecimal expense, BigDecimal availableBalance) {
+		if (expense.compareTo(BigDecimal.ZERO) <= 0) {
+			return "LOW";
+		}
+		if (income.compareTo(BigDecimal.ZERO) > 0) {
+			BigDecimal ratio = expense.divide(income, 4, RoundingMode.HALF_UP);
+			if (ratio.compareTo(new BigDecimal("0.90")) >= 0) {
+				return "HIGH";
+			}
+			if (ratio.compareTo(new BigDecimal("0.65")) >= 0) {
+				return "MEDIUM";
+			}
+		}
+		if (availableBalance.compareTo(expense.multiply(new BigDecimal("0.50"))) < 0) {
+			return "MEDIUM";
+		}
+		return "LOW";
 	}
 
 	private boolean isIncoming(Transaction transaction, long userId) {

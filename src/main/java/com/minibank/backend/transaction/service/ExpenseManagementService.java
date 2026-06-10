@@ -2,6 +2,9 @@ package com.minibank.backend.transaction.service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.YearMonth;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -21,6 +24,7 @@ import com.minibank.backend.transaction.dto.ExpenseCategoryOptionResponse;
 import com.minibank.backend.transaction.dto.ExpenseCategorySummaryResponse;
 import com.minibank.backend.transaction.dto.ExpenseClassifyRequest;
 import com.minibank.backend.transaction.dto.ExpenseClassifyResponse;
+import com.minibank.backend.transaction.dto.ExpenseMonthlyTrendResponse;
 import com.minibank.backend.transaction.dto.ExpenseOverviewResponse;
 import com.minibank.backend.transaction.dto.ExpenseUnclassifiedTransactionResponse;
 import com.minibank.backend.transaction.entity.Transaction;
@@ -77,6 +81,7 @@ public class ExpenseManagementService {
 		BigDecimal selectedFlowTotal = BigDecimal.ZERO;
 		long selectedFlowTransactionCount = 0;
 		Map<String, CategoryTotals> totalsByCategory = new LinkedHashMap<>();
+		Map<YearMonth, TrendTotals> trendByMonth = initialTrendBuckets();
 		List<ExpenseUnclassifiedTransactionResponse> unclassified = new ArrayList<>();
 
 		for (Transaction transaction : allTransactions) {
@@ -95,6 +100,9 @@ public class ExpenseManagementService {
 
 			selectedFlowTransactionCount++;
 			selectedFlowTotal = selectedFlowTotal.add(amount);
+			YearMonth txMonth = YearMonth.from(transaction.getCreatedAt().atZone(ZoneOffset.UTC));
+			TrendTotals monthTotal = trendByMonth.getOrDefault(txMonth, new TrendTotals(BigDecimal.ZERO, 0));
+			trendByMonth.put(txMonth, new TrendTotals(monthTotal.amount().add(amount), monthTotal.transactionCount() + 1));
 
 			TransactionCategory category = latestCategoryByTransactionId.get(transaction.getId());
 			if (category == null || !flowType.equalsIgnoreCase(category.getFlowType())) {
@@ -136,7 +144,16 @@ public class ExpenseManagementService {
 			selectedFlowTransactionCount,
 			unclassified.size(),
 			categories,
-			unclassified.stream().sorted(Comparator.comparing(ExpenseUnclassifiedTransactionResponse::createdAt).reversed()).toList()
+			unclassified.stream().sorted(Comparator.comparing(ExpenseUnclassifiedTransactionResponse::createdAt).reversed()).toList(),
+			trendByMonth.entrySet().stream()
+				.sorted(Map.Entry.comparingByKey())
+				.map(entry -> new ExpenseMonthlyTrendResponse(
+					entry.getKey().toString(),
+					entry.getKey().format(DateTimeFormatter.ofPattern("MM/yy")),
+					entry.getValue().amount(),
+					entry.getValue().transactionCount()
+				))
+				.toList()
 		);
 	}
 
@@ -243,6 +260,15 @@ public class ExpenseManagementService {
 		return amount == null ? BigDecimal.ZERO : amount;
 	}
 
+	private static Map<YearMonth, TrendTotals> initialTrendBuckets() {
+		YearMonth current = YearMonth.now(ZoneOffset.UTC).minusMonths(5);
+		Map<YearMonth, TrendTotals> buckets = new LinkedHashMap<>();
+		for (int i = 0; i < 6; i++) {
+			buckets.put(current.plusMonths(i), new TrendTotals(BigDecimal.ZERO, 0));
+		}
+		return buckets;
+	}
+
 	private static BigDecimal percentage(BigDecimal part, BigDecimal total) {
 		if (total == null || total.compareTo(BigDecimal.ZERO) <= 0) {
 			return BigDecimal.ZERO;
@@ -287,4 +313,6 @@ public class ExpenseManagementService {
 	private record CategoryDefinition(String code, String name) {}
 
 	private record CategoryTotals(String categoryCode, String categoryName, BigDecimal amount, long transactionCount) {}
+
+	private record TrendTotals(BigDecimal amount, long transactionCount) {}
 }

@@ -34,6 +34,7 @@ import com.minibank.backend.support.entity.LimitChangeRequest;
 import com.minibank.backend.support.entity.ServiceRequest;
 import com.minibank.backend.support.repository.LimitChangeRequestRepository;
 import com.minibank.backend.support.repository.ServiceRequestRepository;
+import com.minibank.backend.system.service.NotificationService;
 import com.minibank.backend.transaction.entity.Transaction;
 import com.minibank.backend.transaction.repository.TransactionRepository;
 import com.minibank.backend.user.entity.User;
@@ -52,6 +53,7 @@ public class AdminServiceRequestService {
 	private final LoanRepaymentScheduleRepository loanRepaymentScheduleRepository;
 	private final TransactionRepository transactionRepository;
 	private final ObjectMapper objectMapper;
+	private final NotificationService notificationService;
 
 	public AdminServiceRequestService(
 		ServiceRequestRepository serviceRequestRepository,
@@ -64,7 +66,8 @@ public class AdminServiceRequestService {
 		LoanRepository loanRepository,
 		LoanRepaymentScheduleRepository loanRepaymentScheduleRepository,
 		TransactionRepository transactionRepository,
-		ObjectMapper objectMapper
+		ObjectMapper objectMapper,
+		NotificationService notificationService
 	) {
 		this.serviceRequestRepository = serviceRequestRepository;
 		this.limitChangeRequestRepository = limitChangeRequestRepository;
@@ -77,6 +80,7 @@ public class AdminServiceRequestService {
 		this.loanRepaymentScheduleRepository = loanRepaymentScheduleRepository;
 		this.transactionRepository = transactionRepository;
 		this.objectMapper = objectMapper;
+		this.notificationService = notificationService;
 	}
 
 	@Transactional(readOnly = true)
@@ -285,6 +289,18 @@ public class AdminServiceRequestService {
 		request.setProcessedAt(Instant.now());
 		request.setProcessNote(note);
 		serviceRequestRepository.save(request);
+		notifyUserRequestProcessed(request, status, note);
+	}
+
+	private void notifyUserRequestProcessed(ServiceRequest request, String status, String note) {
+		User user = request.getUser();
+		if (user == null || user.getId() == null) {
+			return;
+		}
+		boolean approved = "APPROVED".equalsIgnoreCase(status);
+		String title = approved ? "Yeu cau dich vu da duoc phe duyet" : "Yeu cau dich vu da bi tu choi";
+		String content = request.getTitle() + (note == null || note.isBlank() ? "" : ": " + note.trim());
+		notificationService.createForUser(user.getId(), "SERVICE_REQUEST", title, content);
 	}
 
 	private void applyProfilePayload(ServiceRequest request) {

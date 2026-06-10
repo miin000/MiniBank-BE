@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -32,19 +33,22 @@ public class ServiceRequestService {
 	private final AccountRepository accountRepository;
 	private final UserRepository userRepository;
 	private final ObjectMapper objectMapper;
+	private final SimpMessagingTemplate messagingTemplate;
 
 	public ServiceRequestService(
 		ServiceRequestRepository serviceRequestRepository,
 		LimitChangeRequestRepository limitChangeRequestRepository,
 		AccountRepository accountRepository,
 		UserRepository userRepository,
-		ObjectMapper objectMapper
+		ObjectMapper objectMapper,
+		SimpMessagingTemplate messagingTemplate
 	) {
 		this.serviceRequestRepository = serviceRequestRepository;
 		this.limitChangeRequestRepository = limitChangeRequestRepository;
 		this.accountRepository = accountRepository;
 		this.userRepository = userRepository;
 		this.objectMapper = objectMapper;
+		this.messagingTemplate = messagingTemplate;
 	}
 
 	@Transactional(readOnly = true)
@@ -78,6 +82,7 @@ public class ServiceRequestService {
 			.build();
 
 		serviceRequest = serviceRequestRepository.save(serviceRequest);
+		notifyAdminNewRequest(serviceRequest, user);
 		return toServiceRequestResponse(serviceRequest);
 	}
 
@@ -103,6 +108,7 @@ public class ServiceRequestService {
 			.status("SUBMITTED")
 			.build();
 		serviceRequest = serviceRequestRepository.save(serviceRequest);
+		notifyAdminNewRequest(serviceRequest, user);
 
 		LimitChangeRequest limitChangeRequest = LimitChangeRequest.builder()
 			.serviceRequest(serviceRequest)
@@ -132,7 +138,19 @@ public class ServiceRequestService {
 			.status("SUBMITTED")
 			.build();
 		serviceRequest = serviceRequestRepository.save(serviceRequest);
+		notifyAdminNewRequest(serviceRequest, user);
 		return toServiceRequestResponse(serviceRequest);
+	}
+
+	private void notifyAdminNewRequest(ServiceRequest request, User user) {
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("type", "SERVICE_REQUEST");
+		payload.put("title", "Yeu cau dich vu moi");
+		payload.put("content", (user.getFullName() == null ? user.getPhone() : user.getFullName()) + " vua gui " + request.getTitle());
+		payload.put("requestId", request.getId());
+		payload.put("requestType", request.getRequestType());
+		payload.put("createdAt", request.getSubmittedAt());
+		messagingTemplate.convertAndSend("/topic/admin/notifications", payload);
 	}
 
 	@Transactional

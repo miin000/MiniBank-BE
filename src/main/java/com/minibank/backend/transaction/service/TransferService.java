@@ -26,6 +26,7 @@ import com.minibank.backend.account.repository.AccountRepository;
 import com.minibank.backend.account.repository.TransferQrIntentRepository;
 import com.minibank.backend.ai.service.AiTransactionClassificationService;
 import com.minibank.backend.common.otp.SmsOtpService;
+import com.minibank.backend.system.service.NotificationService;
 import com.minibank.backend.transaction.dto.TransferConfirmRequest;
 import com.minibank.backend.transaction.dto.TransferConfirmResponse;
 import com.minibank.backend.transaction.dto.TransferInitiateRequest;
@@ -52,6 +53,7 @@ public class TransferService {
 	private final RsaSignatureService rsaSignatureService;
 	private final SmsOtpService smsOtpService;
 	private final AiTransactionClassificationService aiTransactionClassificationService;
+	private final NotificationService notificationService;
 	private final boolean debugReturnOtp;
 	private final BigDecimal largeThreshold;
 	private final BigDecimal managerThreshold;
@@ -67,6 +69,7 @@ public class TransferService {
 		RsaSignatureService rsaSignatureService,
 		SmsOtpService smsOtpService,
 		AiTransactionClassificationService aiTransactionClassificationService,
+		NotificationService notificationService,
 		@Value("${app.otp.debug-return:false}") boolean debugReturnOtp,
 		@Value("${app.transaction.large-threshold:100000000}") BigDecimal largeThreshold,
 		@Value("${app.transaction.manager-threshold:200000000}") BigDecimal managerThreshold
@@ -81,6 +84,7 @@ public class TransferService {
 		this.rsaSignatureService = rsaSignatureService;
 		this.smsOtpService = smsOtpService;
 		this.aiTransactionClassificationService = aiTransactionClassificationService;
+		this.notificationService = notificationService;
 		this.debugReturnOtp = debugReturnOtp;
 		this.largeThreshold = largeThreshold == null ? BigDecimal.ZERO : largeThreshold;
 		this.managerThreshold = managerThreshold == null ? BigDecimal.ZERO : managerThreshold;
@@ -114,6 +118,11 @@ public class TransferService {
 		BigDecimal dailyLimit = fromAccount.getDailyTransferLimit() == null ? BigDecimal.ZERO : fromAccount.getDailyTransferLimit();
 		if (dailyLimit.compareTo(BigDecimal.ZERO) > 0 && amount.compareTo(dailyLimit) > 0) {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Amount exceeds daily transfer limit");
+		}
+
+		BigDecimal receiveLimit = toAccount.getDailyReceiveLimit() == null ? BigDecimal.ZERO : toAccount.getDailyReceiveLimit();
+		if (receiveLimit.compareTo(BigDecimal.ZERO) > 0 && amount.compareTo(receiveLimit) > 0) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Amount exceeds recipient daily receive limit");
 		}
 
 		String canonical = canonicalPayload(fromAccount.getAccountNumber(), toAccount.getAccountNumber(), amount, request.description(), request.idempotencyKey());
@@ -336,6 +345,7 @@ public class TransferService {
 		} catch (Exception ex) {
 			log.warn("Failed to classify transaction {}: {}", tx.getId(), ex.getMessage());
 		}
+		notifyTransferCompleted(tx, fromAccount, toAccount);
 	
 		return new TransferConfirmResponse(
 			tx.getId(),
@@ -361,6 +371,26 @@ public class TransferService {
 
 	private boolean requiresManagerApproval(BigDecimal amount) {
 		return managerThreshold.compareTo(BigDecimal.ZERO) > 0 && amount.compareTo(managerThreshold) >= 0;
+	}
+
+	private void notifyTransferCompleted(Transaction tx, Account fromAccount, Account toAccount) {
+		String amountText = tx.getAmount().setScale(0, RoundingMode.HALF_UP).toPlainString() + " VND";
+		if (fromAccount.getUser() != null && fromAccount.getUser().getId() != null) {
+			notificationService.createForUser(
+				fromAccount.getUser().getId(),
+				"TRANSFER",
+				"Chuyen khoan thanh cong",
+				"Ban da chuyen " + amountText + " den " + toAccount.getAccountNumber()
+			);
+		}
+		if (toAccount.getUser() != null && toAccount.getUser().getId() != null) {
+			notificationService.createForUser(
+				toAccount.getUser().getId(),
+				"TRANSFER",
+				"Ban vua nhan tien",
+				"Tai khoan " + toAccount.getAccountNumber() + " nhan " + amountText + " tu " + fromAccount.getAccountNumber()
+			);
+		}
 	}
 
 	private Account resolveFromAccount(long userId, String fromAccountNumber) {

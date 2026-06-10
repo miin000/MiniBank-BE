@@ -14,4 +14,6 @@ public interface LoanProductRepository extends JpaRepository<LoanProduct, Long> 
 	List<LoanProduct> findByStatusIgnoreCaseOrderByBaseInterestRateDesc(String status);
 
 	List<LoanProduct> findAllByOrderByUpdatedAtDesc();
+
+	boolean existsByCodeIgnoreCase(String code);
 }

@@ -81,7 +81,9 @@ public class MobileAccountController {
 			account.getAvailableBalance(),
 			account.getCurrentBalance(),
 			account.getStatus(),
-			customerRank
+			customerRank,
+			account.getDailyTransferLimit(),
+			account.getDailyReceiveLimit()
 		);
 	}
 
@@ -99,7 +101,13 @@ public class MobileAccountController {
 	}
 
 	@GetMapping("/suggestions")
-	public AccountSuggestionsResponse suggestions(@RequestParam("desired") String desired, @RequestParam(value = "limit", required = false) Integer limit) {
+	public AccountSuggestionsResponse suggestions(
+		@RequestParam(name = "desired", required = false) String desired,
+		@RequestParam(name = "limit", required = false) Integer limit
+	) {
+		if (desired == null || desired.isBlank()) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "desired is required");
+		}
 		int finalLimit = limit == null ? 10 : limit;
 		return new AccountSuggestionsResponse(desired, accountNumberService.suggestAccountNumbers(desired, finalLimit));
 	}

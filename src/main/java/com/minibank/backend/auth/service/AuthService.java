@@ -208,14 +208,15 @@ public class AuthService {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "deviceId is required");
 		}
 
-		// Check if user exists and is not blocked
-		users().findByPhone(phone).ifPresent(user -> {
-			if (user.getStatus() != null && user.getStatus().equalsIgnoreCase("blocked")) {
-				throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account is blocked");
-			}
-		});
+		User user = users().findByPhone(phone)
+			.orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials"));
+		if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+			throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+		}
+		if (user.getStatus() != null && user.getStatus().equalsIgnoreCase("blocked")) {
+			throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account is blocked");
+		}
 
-		// Send OTP regardless of whether user exists
 		SmsOtpService.OtpSendResult result = smsOtpService.sendOtp(phone);
 		return new AuthOtpSendResponse(result.devMode(), result.otp());
 	}

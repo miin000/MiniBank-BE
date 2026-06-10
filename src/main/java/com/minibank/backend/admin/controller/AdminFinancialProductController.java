@@ -131,6 +131,12 @@ public class AdminFinancialProductController {
     @PostMapping("/loan-products")
     @ResponseStatus(HttpStatus.CREATED)
     public LoanProductItem createLoanProduct(@RequestBody LoanProductUpsertRequest req) {
+        if (req.code == null || req.code.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "code is required");
+        }
+        if (loanProductRepository.existsByCodeIgnoreCase(req.code.trim())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Loan product code already exists");
+        }
         LoanProduct entity = new LoanProduct();
         applyLoanProduct(entity, req);
         return toLoanProductItem(loanProductRepository.save(entity));

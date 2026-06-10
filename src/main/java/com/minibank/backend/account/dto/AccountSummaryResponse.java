@@ -8,5 +8,7 @@ public record AccountSummaryResponse(
 	BigDecimal availableBalance,
 	BigDecimal currentBalance,
 	String status,
-	String customerRank
+	String customerRank,
+	BigDecimal dailyTransferLimit,
+	BigDecimal dailyReceiveLimit
 ) {}

@@ -33,6 +33,7 @@ import com.minibank.backend.loan.entity.LoanApplication;
 import com.minibank.backend.loan.repository.LoanApplicationRepository;
 import com.minibank.backend.saving.dto.SavingResponse;
 import com.minibank.backend.saving.repository.SavingRepository;
+import com.minibank.backend.system.service.NotificationService;
 import com.minibank.backend.user.entity.Document;
 import com.minibank.backend.user.repository.DocumentRepository;
 
@@ -46,6 +47,7 @@ public class AdminApprovalController {
     private final AdminUserRepository adminUserRepository;
     private final DocumentRepository documentRepository;
     private final MultiStepApprovalService multiStepApprovalService;
+    private final NotificationService notificationService;
 
     public AdminApprovalController(
         LoanApplicationRepository loanApplicationRepository,
@@ -54,7 +56,8 @@ public class AdminApprovalController {
         ContractRepository contractRepository,
         AdminUserRepository adminUserRepository,
         DocumentRepository documentRepository,
-        MultiStepApprovalService multiStepApprovalService
+        MultiStepApprovalService multiStepApprovalService,
+        NotificationService notificationService
     ) {
         this.loanApplicationRepository = loanApplicationRepository;
         this.savingRepository = savingRepository;
@@ -63,6 +66,7 @@ public class AdminApprovalController {
         this.adminUserRepository = adminUserRepository;
         this.documentRepository = documentRepository;
         this.multiStepApprovalService = multiStepApprovalService;
+        this.notificationService = notificationService;
     }
 
     @GetMapping("/loan-applications")
@@ -161,6 +165,15 @@ public class AdminApprovalController {
                     .build();
                 contractRepository.save(contract);
             }
+
+            if (app.getUser() != null && app.getUser().getId() != null) {
+                notificationService.createForUser(
+                    app.getUser().getId(),
+                    "LOAN_APPLICATION",
+                    "Hồ sơ vay đã được duyệt",
+                    "Hồ sơ vay #" + app.getId() + " của bạn đã được duyệt. Vui lòng vào mục Hợp đồng để xem và ký hợp đồng."
+                );
+            }
         }
 
         return toLoanApprovalSummary(app);
@@ -190,6 +203,18 @@ public class AdminApprovalController {
         app.setReviewedBy(requireReviewer());
         app.setReviewNote(req != null ? req.reason : null);
         loanApplicationRepository.save(app);
+
+        if (app.getUser() != null && app.getUser().getId() != null) {
+            String reason = (req != null && req.reason != null && !req.reason.isBlank())
+                ? " Lý do: " + req.reason
+                : "";
+            notificationService.createForUser(
+                app.getUser().getId(),
+                "LOAN_APPLICATION",
+                "Hồ sơ vay bị từ chối",
+                "Hồ sơ vay #" + app.getId() + " của bạn đã bị từ chối." + reason
+            );
+        }
 
         return toLoanApprovalSummary(app);
     }

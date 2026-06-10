@@ -316,7 +316,14 @@ public class AdminChatbotService {
 		conversation.setStatus("CLOSED");
 		conversation.setEndedAt(Instant.now());
 		conversationRepository.save(conversation);
-		realtimeService.broadcastConversation(conversation, null);
+		ChatMessage systemMessage = messageRepository.save(ChatMessage.builder()
+			.conversation(conversation)
+			.senderType("SYSTEM")
+			.messageType("TEXT")
+			.content("CSKH đã đóng cuộc trò chuyện. Nếu cần hỗ trợ thêm, vui lòng tạo cuộc trò chuyện mới.")
+			.build());
+		realtimeService.broadcastMessage(systemMessage);
+		realtimeService.broadcastConversation(conversation, systemMessage.getContent());
 		return getConversation(conversationId);
 	}
 

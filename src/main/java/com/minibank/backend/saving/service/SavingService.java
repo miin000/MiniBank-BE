@@ -36,6 +36,7 @@ import com.minibank.backend.saving.entity.Saving;
 import com.minibank.backend.saving.entity.SavingProduct;
 import com.minibank.backend.saving.repository.SavingProductRepository;
 import com.minibank.backend.saving.repository.SavingRepository;
+import com.minibank.backend.system.service.NotificationService;
 import com.minibank.backend.transaction.entity.Transaction;
 import com.minibank.backend.transaction.entity.TransactionAuthentication;
 import com.minibank.backend.transaction.repository.TransactionAuthenticationRepository;
@@ -64,6 +65,7 @@ public class SavingService {
     private final SmsOtpService smsOtpService;
     private final TransactionRepository transactionRepository;
     private final TransactionAuthenticationRepository transactionAuthenticationRepository;
+    private final NotificationService notificationService;
 
     public List<SavingResponse> getSavings(long userId) {
         return savingRepository.findByUserIdOrderByCreatedAtDesc(userId)
@@ -301,7 +303,19 @@ public class SavingService {
         if (saving.getMaturityDate() == null) {
             saving.setMaturityDate(calculateMaturityDate(saving.getOpenDate(), saving.getTermUnit(), saving.getTermValue()));
         }
-        return SavingResponse.from(savingRepository.save(saving));
+        Saving saved = savingRepository.save(saving);
+        if (saved.getUser() != null && saved.getUser().getId() != null) {
+            try {
+                notificationService.createForUser(
+                    saved.getUser().getId(),
+                    "SAVING",
+                    "Sổ tiết kiệm đã được duyệt",
+                    "Sổ tiết kiệm " + (saved.getCode() != null ? saved.getCode() : "#" + saved.getId())
+                        + " của bạn đã được duyệt và đang hoạt động."
+                );
+            } catch (Exception ignored) {}
+        }
+        return SavingResponse.from(saved);
     }
 
     @Transactional
@@ -323,6 +337,19 @@ public class SavingService {
         saving.setReviewedAt(Instant.now());
         saving.setReviewedBy(getSystemAdminOrNull());
         savingRepository.save(saving);
+
+        if (saving.getUser() != null && saving.getUser().getId() != null) {
+            try {
+                String detail = (reason != null && !reason.isBlank()) ? " Lý do: " + reason : "";
+                notificationService.createForUser(
+                    saving.getUser().getId(),
+                    "SAVING",
+                    "Sổ tiết kiệm bị từ chối",
+                    "Sổ tiết kiệm " + (saving.getCode() != null ? saving.getCode() : "#" + saving.getId())
+                        + " đã bị từ chối." + detail
+                );
+            } catch (Exception ignored) {}
+        }
     }
 
     private void validateProductActive(SavingProduct product) {
